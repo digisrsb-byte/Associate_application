@@ -1,0 +1,6 @@
+{
+  "name": "TaxLedger",
+  "description": "Client tax filing and fee ledger dashboard with continuous assessment year tracking, PAN and portal credential vault, and payment reconciliation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

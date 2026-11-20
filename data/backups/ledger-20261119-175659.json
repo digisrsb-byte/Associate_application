@@ -1,0 +1,499 @@
+{
+  "assessmentYears": [
+    "AY 2019-20",
+    "AY 2020-21",
+    "AY 2021-22",
+    "AY 2022-23",
+    "AY 2023-24",
+    "AY 2024-25",
+    "AY 2025-26",
+    "AY 2026-27",
+    "AY 2027-28"
+  ],
+  "clients": [
+    {
+      "id": "demo-1",
+      "name": "Ramesh Kumar",
+      "pan": "ABCPR1234K",
+      "password": "Ramesh@2026",
+      "phone": "9820112233",
+      "referenceNumber": "REF-01",
+      "remark": "Regular yearly filing",
+      "filings": {
+        "AY 2019-20": {
+          "assessmentYear": "AY 2019-20",
+          "filingDate": "2020-01-15",
+          "fees": 10000,
+          "received": 9000,
+          "balance": 1000,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2020-01-16"
+        },
+        "AY 2020-21": {
+          "assessmentYear": "AY 2020-21",
+          "filingDate": "2021-01-10",
+          "fees": 10000,
+          "received": 9000,
+          "balance": 1000,
+          "paymentType": "PhonePe",
+          "paymentReceiveDate": "2021-01-12"
+        },
+        "AY 2021-22": {
+          "assessmentYear": "AY 2021-22",
+          "filingDate": "2022-07-28",
+          "fees": 10000,
+          "received": 10000,
+          "balance": 0,
+          "paymentType": "BOB",
+          "paymentReceiveDate": "2022-07-29"
+        },
+        "AY 2026-27": {
+          "assessmentYear": "AY 2026-27",
+          "filingDate": "",
+          "fees": 0,
+          "received": 0,
+          "balance": 0,
+          "paymentType": "GPay",
+          "paymentReceiveDate": ""
+        },
+        "AY 2027-28": {
+          "assessmentYear": "AY 2027-28",
+          "filingDate": "",
+          "fees": 0,
+          "received": 0,
+          "balance": 0,
+          "paymentType": "GPay",
+          "paymentReceiveDate": ""
+        }
+      },
+      "createdAt": "2026-11-18T10:53:30.866Z",
+      "updatedAt": "2026-11-19T12:26:39.701Z"
+    },
+    {
+      "id": "demo-2",
+      "name": "Priya Nair",
+      "pan": "BKLPN5678M",
+      "password": "Priya#456",
+      "phone": "9845022334",
+      "referenceNumber": "REF-02",
+      "remark": "All dues cleared",
+      "filings": {
+        "AY 2025-26": {
+          "assessmentYear": "AY 2025-26",
+          "filingDate": "2025-07-24",
+          "fees": 6000,
+          "received": 6000,
+          "balance": 0,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2025-07-25"
+        },
+        "AY 2026-27": {
+          "assessmentYear": "AY 2026-27",
+          "filingDate": "2026-07-27",
+          "fees": 6500,
+          "received": 6500,
+          "balance": 0,
+          "paymentType": "UPI",
+          "paymentReceiveDate": "2026-07-28"
+        }
+      },
+      "createdAt": "2026-11-18T10:53:30.866Z",
+      "updatedAt": "2026-11-19T12:26:39.701Z"
+    },
+    {
+      "id": "demo-3",
+      "name": "Suresh Verma",
+      "pan": "AGTPV8899R",
+      "password": "Suresh@789",
+      "phone": "9765099887",
+      "referenceNumber": "REF-03",
+      "remark": "Follow up for AY 2026-27 payment",
+      "filings": {
+        "AY 2025-26": {
+          "assessmentYear": "AY 2025-26",
+          "filingDate": "2025-07-29",
+          "fees": 8000,
+          "received": 5000,
+          "balance": 3000,
+          "paymentType": "Cash",
+          "paymentReceiveDate": "2025-08-02"
+        },
+        "AY 2026-27": {
+          "assessmentYear": "AY 2026-27",
+          "filingDate": "2026-07-31",
+          "fees": 8500,
+          "received": 0,
+          "balance": 8500,
+          "paymentType": "Pending",
+          "paymentReceiveDate": ""
+        }
+      },
+      "createdAt": "2026-11-18T10:53:30.866Z",
+      "updatedAt": "2026-11-19T12:26:39.701Z"
+    }
+  ],
+  "gstMonths": [
+    "Apr 2025",
+    "May 2025",
+    "Jun 2025",
+    "Jul 2025",
+    "Aug 2025",
+    "Sep 2025",
+    "Oct 2025",
+    "Nov 2025",
+    "Dec 2025",
+    "Jan 2026",
+    "Feb 2026",
+    "Mar 2026",
+    "Apr 2026",
+    "May 2026",
+    "Jun 2026",
+    "Jul 2026",
+    "Aug 2026",
+    "Sep 2026",
+    "Oct 2026",
+    "Nov 2026",
+    "Dec 2026",
+    "Jan 2027",
+    "Feb 2027",
+    "Mar 2027"
+  ],
+  "gstClients": [
+    {
+      "id": "gst-demo-1",
+      "companyName": "Sharma Traders Pvt Ltd",
+      "userId": "sharma.traders",
+      "password": "Sharma@Gst26",
+      "phone": "9876501122",
+      "referenceNumber": "GST-REF-01",
+      "remark": "Monthly GSTR-3B — regular filer",
+      "totalReceived": 52000,
+      "filings": {
+        "Oct 2025": {
+          "month": "Oct 2025",
+          "fees": 2200,
+          "interest": 0,
+          "tax": 16200,
+          "total": 18400
+        },
+        "Nov 2025": {
+          "month": "Nov 2025",
+          "fees": 2200,
+          "interest": 0,
+          "tax": 15800,
+          "total": 18000
+        },
+        "Dec 2025": {
+          "month": "Dec 2025",
+          "fees": 2200,
+          "interest": 100,
+          "tax": 17100,
+          "total": 19400
+        },
+        "Jan 2026": {
+          "month": "Jan 2026",
+          "fees": 2200,
+          "interest": 0,
+          "tax": 16500,
+          "total": 18700
+        },
+        "Feb 2026": {
+          "month": "Feb 2026",
+          "fees": 2200,
+          "interest": 0,
+          "tax": 14900,
+          "total": 17100
+        },
+        "Mar 2026": {
+          "month": "Mar 2026",
+          "fees": 2200,
+          "interest": 0,
+          "tax": 18200,
+          "total": 20400
+        },
+        "Apr 2026": {
+          "month": "Apr 2026",
+          "fees": 2500,
+          "interest": 0,
+          "tax": 18500,
+          "total": 21000
+        },
+        "May 2026": {
+          "month": "May 2026",
+          "fees": 2500,
+          "interest": 0,
+          "tax": 17200,
+          "total": 19700
+        },
+        "Jun 2026": {
+          "month": "Jun 2026",
+          "fees": 2500,
+          "interest": 150,
+          "tax": 20100,
+          "total": 22750
+        },
+        "Jul 2026": {
+          "month": "Jul 2026",
+          "fees": 2500,
+          "interest": 0,
+          "tax": 16800,
+          "total": 19300
+        },
+        "Aug 2026": {
+          "month": "Aug 2026",
+          "fees": 2500,
+          "interest": 0,
+          "tax": 19200,
+          "total": 21700
+        },
+        "Sep 2026": {
+          "month": "Sep 2026",
+          "fees": 2500,
+          "interest": 0,
+          "tax": 21000,
+          "total": 23500
+        },
+        "Oct 2026": {
+          "month": "Oct 2026",
+          "fees": 0,
+          "interest": 0,
+          "tax": 0,
+          "total": 0
+        }
+      },
+      "createdAt": "2026-11-19T04:00:00.000Z",
+      "updatedAt": "2026-11-19T04:27:46.043Z"
+    },
+    {
+      "id": "gst-demo-2",
+      "companyName": "Nair Electronics",
+      "userId": "nair.electronics",
+      "password": "Nair#Gst99",
+      "phone": "9812345670",
+      "referenceNumber": "GST-REF-02",
+      "remark": "All dues cleared till Aug",
+      "totalReceived": 68500,
+      "filings": {
+        "Nov 2025": {
+          "month": "Nov 2025",
+          "fees": 1600,
+          "interest": 0,
+          "tax": 7800,
+          "total": 9400
+        },
+        "Dec 2025": {
+          "month": "Dec 2025",
+          "fees": 1600,
+          "interest": 0,
+          "tax": 8100,
+          "total": 9700
+        },
+        "Jan 2026": {
+          "month": "Jan 2026",
+          "fees": 1600,
+          "interest": 0,
+          "tax": 7500,
+          "total": 9100
+        },
+        "Feb 2026": {
+          "month": "Feb 2026",
+          "fees": 1600,
+          "interest": 50,
+          "tax": 7200,
+          "total": 8850
+        },
+        "Mar 2026": {
+          "month": "Mar 2026",
+          "fees": 1600,
+          "interest": 0,
+          "tax": 8400,
+          "total": 10000
+        },
+        "Apr 2026": {
+          "month": "Apr 2026",
+          "fees": 1800,
+          "interest": 0,
+          "tax": 9200,
+          "total": 11000
+        },
+        "May 2026": {
+          "month": "May 2026",
+          "fees": 1800,
+          "interest": 0,
+          "tax": 8800,
+          "total": 10600
+        },
+        "Jun 2026": {
+          "month": "Jun 2026",
+          "fees": 1800,
+          "interest": 0,
+          "tax": 9500,
+          "total": 11300
+        },
+        "Jul 2026": {
+          "month": "Jul 2026",
+          "fees": 1800,
+          "interest": 0,
+          "tax": 9100,
+          "total": 10900
+        },
+        "Aug 2026": {
+          "month": "Aug 2026",
+          "fees": 1800,
+          "interest": 0,
+          "tax": 8600,
+          "total": 10400
+        }
+      },
+      "createdAt": "2026-11-19T04:00:00.000Z",
+      "updatedAt": "2026-11-19T04:00:00.000Z"
+    },
+    {
+      "id": "gst-demo-3",
+      "companyName": "Verma Logistics LLP",
+      "userId": "verma.logistics",
+      "password": "Verma@Gst77",
+      "phone": "9765012345",
+      "referenceNumber": "GST-REF-03",
+      "remark": "Outstanding balance — follow up",
+      "totalReceived": 15000,
+      "filings": {
+        "Apr 2026": {
+          "month": "Apr 2026",
+          "fees": 3000,
+          "interest": 200,
+          "tax": 24500,
+          "total": 27700
+        },
+        "May 2026": {
+          "month": "May 2026",
+          "fees": 3000,
+          "interest": 0,
+          "tax": 22800,
+          "total": 25800
+        },
+        "Jun 2026": {
+          "month": "Jun 2026",
+          "fees": 3000,
+          "interest": 450,
+          "tax": 26100,
+          "total": 29550
+        },
+        "Jul 2026": {
+          "month": "Jul 2026",
+          "fees": 3000,
+          "interest": 0,
+          "tax": 23900,
+          "total": 26900
+        },
+        "Aug 2026": {
+          "month": "Aug 2026",
+          "fees": 3000,
+          "interest": 0,
+          "tax": 25200,
+          "total": 28200
+        },
+        "Sep 2026": {
+          "month": "Sep 2026",
+          "fees": 3000,
+          "interest": 300,
+          "tax": 27000,
+          "total": 30300
+        },
+        "Oct 2026": {
+          "month": "Oct 2026",
+          "fees": 3000,
+          "interest": 0,
+          "tax": 24800,
+          "total": 27800
+        }
+      },
+      "createdAt": "2026-11-19T04:00:00.000Z",
+      "updatedAt": "2026-11-19T04:00:00.000Z"
+    },
+    {
+      "id": "gst-demo-4",
+      "companyName": "Mehta Textiles",
+      "userId": "mehta.textiles",
+      "password": "Mehta@Gst12",
+      "phone": "9900112233",
+      "referenceNumber": "GST-REF-04",
+      "remark": "New client — started from Jul 2026",
+      "totalReceived": 8500,
+      "filings": {
+        "Jul 2026": {
+          "month": "Jul 2026",
+          "fees": 2200,
+          "interest": 0,
+          "tax": 14200,
+          "total": 16400
+        },
+        "Aug 2026": {
+          "month": "Aug 2026",
+          "fees": 2200,
+          "interest": 0,
+          "tax": 13800,
+          "total": 16000
+        },
+        "Sep 2026": {
+          "month": "Sep 2026",
+          "fees": 2200,
+          "interest": 100,
+          "tax": 15500,
+          "total": 17800
+        },
+        "Oct 2026": {
+          "month": "Oct 2026",
+          "fees": 2200,
+          "interest": 0,
+          "tax": 14900,
+          "total": 17100
+        }
+      },
+      "createdAt": "2026-11-19T04:00:00.000Z",
+      "updatedAt": "2026-11-19T04:00:00.000Z"
+    },
+    {
+      "id": "gst-demo-5",
+      "companyName": "Patel Foods & Beverages",
+      "userId": "patel.foods",
+      "password": "Patel#Gst55",
+      "phone": "9822099887",
+      "referenceNumber": "GST-REF-05",
+      "remark": "Pending payment for recent months",
+      "totalReceived": 5000,
+      "filings": {
+        "Aug 2026": {
+          "month": "Aug 2026",
+          "fees": 1500,
+          "interest": 0,
+          "tax": 7200,
+          "total": 8700
+        },
+        "Sep 2026": {
+          "month": "Sep 2026",
+          "fees": 1500,
+          "interest": 75,
+          "tax": 8100,
+          "total": 9675
+        },
+        "Oct 2026": {
+          "month": "Oct 2026",
+          "fees": 1500,
+          "interest": 0,
+          "tax": 7800,
+          "total": 9300
+        },
+        "Nov 2026": {
+          "month": "Nov 2026",
+          "fees": 1500,
+          "interest": 0,
+          "tax": 8500,
+          "total": 10000
+        }
+      },
+      "createdAt": "2026-11-19T04:00:00.000Z",
+      "updatedAt": "2026-11-19T04:00:00.000Z"
+    }
+  ]
+}

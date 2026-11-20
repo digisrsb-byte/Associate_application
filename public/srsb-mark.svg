@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="SRSB">
+  <!-- Teal lower ribbon -->
+  <path
+    d="M18 46c0-8 6-12 14-14 7-2 12-5 12-11 0-5-4-8-10-8-5 0-9 2-11 6"
+    stroke="#1FA6A0"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <!-- Orange upper ribbon -->
+  <path
+    d="M46 18c0 8-6 12-14 14-7 2-12 5-12 11 0 5 4 8 10 8 5 0 9-2 11-6"
+    stroke="#F08A1F"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

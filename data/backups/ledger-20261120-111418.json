@@ -1,0 +1,369 @@
+{
+  "assessmentYears": [
+    "AY 2019-20",
+    "AY 2020-21",
+    "AY 2021-22",
+    "AY 2022-23",
+    "AY 2023-24",
+    "AY 2024-25",
+    "AY 2025-26",
+    "AY 2026-27",
+    "AY 2027-28",
+    "AY 2028-29"
+  ],
+  "clients": [
+    {
+      "id": "cli-4c022f4c",
+      "name": "Ramesh Kumar",
+      "pan": "ABCPR1234K",
+      "password": "NOT SET",
+      "phone": "9820112233",
+      "referenceNumber": "",
+      "remark": "",
+      "filings": {
+        "AY 2019-20": {
+          "assessmentYear": "AY 2019-20",
+          "filingDate": "2020-01-15",
+          "fees": 10000,
+          "received": 9000,
+          "balance": 1000,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2020-01-16"
+        },
+        "AY 2020-21": {
+          "assessmentYear": "AY 2020-21",
+          "filingDate": "2021-01-10",
+          "fees": 10000,
+          "received": 9000,
+          "balance": 1000,
+          "paymentType": "PhonePe",
+          "paymentReceiveDate": "2021-01-12"
+        },
+        "AY 2021-22": {
+          "assessmentYear": "AY 2021-22",
+          "filingDate": "2022-07-28",
+          "fees": 10000,
+          "received": 10000,
+          "balance": 0,
+          "paymentType": "BOB",
+          "paymentReceiveDate": "2022-07-29"
+        },
+        "AY 2022-23": {
+          "assessmentYear": "AY 2022-23",
+          "filingDate": "2023-07-20",
+          "fees": 11000,
+          "received": 11000,
+          "balance": 0,
+          "paymentType": "UPI",
+          "paymentReceiveDate": "2023-07-21"
+        },
+        "AY 2023-24": {
+          "assessmentYear": "AY 2023-24",
+          "filingDate": "2024-07-18",
+          "fees": 12000,
+          "received": 8000,
+          "balance": 4000,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2024-07-22"
+        },
+        "AY 2024-25": {
+          "assessmentYear": "AY 2024-25",
+          "filingDate": "2025-07-15",
+          "fees": 12500,
+          "received": 12500,
+          "balance": 0,
+          "paymentType": "Bank Transfer",
+          "paymentReceiveDate": "2025-07-16"
+        },
+        "AY 2025-26": {
+          "assessmentYear": "AY 2025-26",
+          "filingDate": "2025-07-30",
+          "fees": 13000,
+          "received": 10000,
+          "balance": 3000,
+          "paymentType": "PhonePe",
+          "paymentReceiveDate": "2025-08-02"
+        },
+        "AY 2026-27": {
+          "assessmentYear": "AY 2026-27",
+          "filingDate": "2027-04-02",
+          "fees": 10000,
+          "received": 5000,
+          "balance": 5000,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2027-12-01"
+        }
+      },
+      "createdAt": "2026-11-20T05:03:29.152Z",
+      "updatedAt": "2026-11-20T05:12:38.160Z"
+    },
+    {
+      "id": "cli-eeecb25e",
+      "name": "Vikram Shah",
+      "pan": "DHLVS7788P",
+      "password": "NOT SET",
+      "phone": "9123456780",
+      "referenceNumber": "",
+      "remark": "",
+      "filings": {
+        "AY 2020-21": {
+          "assessmentYear": "AY 2020-21",
+          "filingDate": "2021-07-05",
+          "fees": 15000,
+          "received": 15000,
+          "balance": 0,
+          "paymentType": "Bank Transfer",
+          "paymentReceiveDate": "2021-07-06"
+        },
+        "AY 2021-22": {
+          "assessmentYear": "AY 2021-22",
+          "filingDate": "2022-07-08",
+          "fees": 16000,
+          "received": 16000,
+          "balance": 0,
+          "paymentType": "Bank Transfer",
+          "paymentReceiveDate": "2022-07-09"
+        },
+        "AY 2022-23": {
+          "assessmentYear": "AY 2022-23",
+          "filingDate": "2023-07-11",
+          "fees": 17000,
+          "received": 12000,
+          "balance": 5000,
+          "paymentType": "BOB",
+          "paymentReceiveDate": "2023-07-15"
+        },
+        "AY 2023-24": {
+          "assessmentYear": "AY 2023-24",
+          "filingDate": "2024-07-09",
+          "fees": 18000,
+          "received": 18000,
+          "balance": 0,
+          "paymentType": "Bank Transfer",
+          "paymentReceiveDate": "2024-07-10"
+        },
+        "AY 2024-25": {
+          "assessmentYear": "AY 2024-25",
+          "filingDate": "2025-07-07",
+          "fees": 19000,
+          "received": 10000,
+          "balance": 9000,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2025-07-12"
+        },
+        "AY 2025-26": {
+          "assessmentYear": "AY 2025-26",
+          "filingDate": "2025-07-21",
+          "fees": 20000,
+          "received": 20000,
+          "balance": 0,
+          "paymentType": "UPI",
+          "paymentReceiveDate": "2025-07-21"
+        },
+        "AY 2026-27": {
+          "assessmentYear": "AY 2026-27",
+          "filingDate": "2026-07-19",
+          "fees": 21000,
+          "received": 5000,
+          "balance": 16000,
+          "paymentType": "Pending",
+          "paymentReceiveDate": "2026-07-20"
+        }
+      },
+      "createdAt": "2026-11-20T05:03:29.152Z",
+      "updatedAt": "2026-11-20T05:03:29.152Z"
+    },
+    {
+      "id": "cli-fec34ffa",
+      "name": "Priya Nair",
+      "pan": "BKLPN5678M",
+      "password": "NOT SET",
+      "phone": "9845022334",
+      "referenceNumber": "",
+      "remark": "",
+      "filings": {
+        "AY 2021-22": {
+          "assessmentYear": "AY 2021-22",
+          "filingDate": "2022-07-12",
+          "fees": 5000,
+          "received": 5000,
+          "balance": 0,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2022-07-12"
+        },
+        "AY 2022-23": {
+          "assessmentYear": "AY 2022-23",
+          "filingDate": "2023-07-14",
+          "fees": 5500,
+          "received": 5500,
+          "balance": 0,
+          "paymentType": "UPI",
+          "paymentReceiveDate": "2023-07-14"
+        },
+        "AY 2023-24": {
+          "assessmentYear": "AY 2023-24",
+          "filingDate": "2024-07-16",
+          "fees": 5500,
+          "received": 5500,
+          "balance": 0,
+          "paymentType": "PhonePe",
+          "paymentReceiveDate": "2024-07-16"
+        },
+        "AY 2024-25": {
+          "assessmentYear": "AY 2024-25",
+          "filingDate": "2025-07-18",
+          "fees": 6000,
+          "received": 6000,
+          "balance": 0,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2025-07-18"
+        },
+        "AY 2025-26": {
+          "assessmentYear": "AY 2025-26",
+          "filingDate": "2025-07-24",
+          "fees": 6000,
+          "received": 6000,
+          "balance": 0,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2025-07-25"
+        },
+        "AY 2026-27": {
+          "assessmentYear": "AY 2026-27",
+          "filingDate": "2026-07-27",
+          "fees": 6500,
+          "received": 6500,
+          "balance": 0,
+          "paymentType": "UPI",
+          "paymentReceiveDate": "2026-07-28"
+        }
+      },
+      "createdAt": "2026-11-20T05:03:29.152Z",
+      "updatedAt": "2026-11-20T05:03:29.152Z"
+    },
+    {
+      "id": "cli-480624d6",
+      "name": "Suresh Verma",
+      "pan": "AGTPV8899R",
+      "password": "NOT SET",
+      "phone": "9765099887",
+      "referenceNumber": "",
+      "remark": "",
+      "filings": {
+        "AY 2022-23": {
+          "assessmentYear": "AY 2022-23",
+          "filingDate": "2023-07-25",
+          "fees": 7000,
+          "received": 7000,
+          "balance": 0,
+          "paymentType": "Cash",
+          "paymentReceiveDate": "2023-07-25"
+        },
+        "AY 2023-24": {
+          "assessmentYear": "AY 2023-24",
+          "filingDate": "2024-07-26",
+          "fees": 7500,
+          "received": 4000,
+          "balance": 3500,
+          "paymentType": "Cash",
+          "paymentReceiveDate": "2024-08-01"
+        },
+        "AY 2024-25": {
+          "assessmentYear": "AY 2024-25",
+          "filingDate": "2025-07-28",
+          "fees": 8000,
+          "received": 8000,
+          "balance": 0,
+          "paymentType": "BOB",
+          "paymentReceiveDate": "2025-07-29"
+        },
+        "AY 2025-26": {
+          "assessmentYear": "AY 2025-26",
+          "filingDate": "2025-07-29",
+          "fees": 8000,
+          "received": 5000,
+          "balance": 3000,
+          "paymentType": "Cash",
+          "paymentReceiveDate": "2025-08-02"
+        },
+        "AY 2026-27": {
+          "assessmentYear": "AY 2026-27",
+          "filingDate": "2026-07-31",
+          "fees": 8500,
+          "received": 0,
+          "balance": 8500,
+          "paymentType": "Pending",
+          "paymentReceiveDate": ""
+        }
+      },
+      "createdAt": "2026-11-20T05:03:29.152Z",
+      "updatedAt": "2026-11-20T05:03:29.152Z"
+    },
+    {
+      "id": "cli-9d351526",
+      "name": "Anjali Mehta",
+      "pan": "CWXPM3344A",
+      "password": "NOT SET",
+      "phone": "9988776655",
+      "referenceNumber": "",
+      "remark": "",
+      "filings": {
+        "AY 2024-25": {
+          "assessmentYear": "AY 2024-25",
+          "filingDate": "2025-07-10",
+          "fees": 4500,
+          "received": 4500,
+          "balance": 0,
+          "paymentType": "UPI",
+          "paymentReceiveDate": "2025-07-10"
+        },
+        "AY 2025-26": {
+          "assessmentYear": "AY 2025-26",
+          "filingDate": "2025-07-22",
+          "fees": 5000,
+          "received": 2500,
+          "balance": 2500,
+          "paymentType": "GPay",
+          "paymentReceiveDate": "2025-07-25"
+        },
+        "AY 2026-27": {
+          "assessmentYear": "AY 2026-27",
+          "filingDate": "2026-07-20",
+          "fees": 5200,
+          "received": 5200,
+          "balance": 0,
+          "paymentType": "PhonePe",
+          "paymentReceiveDate": "2026-07-20"
+        }
+      },
+      "createdAt": "2026-11-20T05:03:29.152Z",
+      "updatedAt": "2026-11-20T05:03:29.152Z"
+    }
+  ],
+  "gstMonths": [
+    "Apr 2025",
+    "May 2025",
+    "Jun 2025",
+    "Jul 2025",
+    "Aug 2025",
+    "Sep 2025",
+    "Oct 2025",
+    "Nov 2025",
+    "Dec 2025",
+    "Jan 2026",
+    "Feb 2026",
+    "Mar 2026",
+    "Apr 2026",
+    "May 2026",
+    "Jun 2026",
+    "Jul 2026",
+    "Aug 2026",
+    "Sep 2026",
+    "Oct 2026",
+    "Nov 2026",
+    "Dec 2026",
+    "Jan 2027",
+    "Feb 2027",
+    "Mar 2027"
+  ],
+  "gstClients": []
+}
