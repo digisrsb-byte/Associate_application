@@ -5,6 +5,7 @@ import type {
   GstClientRecord,
   GstClientTotals,
 } from '../types/ledger.ts';
+import { normalizePanInput } from './fieldValidation.ts';
 
 export function formatCurrency(amount: number): string {
   const safe = Number.isFinite(amount) ? amount : 0;
@@ -34,7 +35,7 @@ export function formatDisplayDate(dateStr: string): string {
 }
 
 export function normalizePan(raw: string): string {
-  return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+  return normalizePanInput(raw);
 }
 
 export function computeBalance(fees: number, received: number): number {
@@ -381,7 +382,7 @@ export function exportContinuousCsv(clients: ClientRecord[], years: string[]): s
     return [
       client.name,
       client.pan,
-      client.password,
+      "",
       client.phone,
       client.referenceNumber,
       client.remark ?? '',

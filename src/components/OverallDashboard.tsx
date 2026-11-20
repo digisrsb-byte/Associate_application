@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import type { ClientRecord, GstClientRecord } from '../types/ledger.ts';
 import {
   computeBalance,
@@ -8,6 +9,7 @@ import {
   computeGstMonthSummary,
   computeYearSummary,
 } from '../utils/summaryUtils.ts';
+import { fadeUp, springSoft, staggerContainer } from '../motion/presets.ts';
 
 interface OverallDashboardProps {
   itClients: ClientRecord[];
@@ -450,8 +452,13 @@ export function OverallDashboard({
 
   return (
     <div id="top" className="space-y-4 font-[family-name:var(--font-display)]">
-      <header className="flex flex-wrap gap-3 justify-between items-end">
-        <div>
+      <motion.header
+        className="flex flex-wrap gap-3 justify-between items-end"
+        variants={staggerContainer}
+        initial="hidden"
+        animate="show"
+      >
+        <motion.div variants={fadeUp} custom={0}>
           <h1 className="text-[clamp(22px,2.4vw,28px)] font-bold tracking-[-0.02em] leading-[1.15] text-[var(--ink)]">
             Hey, here’s your money picture
           </h1>
@@ -460,38 +467,50 @@ export function OverallDashboard({
             {gstClients.length}{' '}
             {gstClients.length === 1 ? 'company' : 'companies'}, all amounts in ₹
           </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
+        </motion.div>
+        <motion.div className="flex flex-wrap gap-2" variants={fadeUp} custom={1}>
+          <motion.button
             type="button"
             onClick={onAddClient}
-            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--navy-900)] text-white border border-[var(--navy-900)] hover:-translate-y-0.5 transition-transform cursor-pointer"
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.97 }}
+            transition={springSoft}
+            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--navy-900)] text-white border border-[var(--navy-900)] cursor-pointer"
           >
             + Add client
-          </button>
-          <button
+          </motion.button>
+          <motion.button
             type="button"
             onClick={onAddCompany}
-            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--gold)] text-[var(--ink)] border border-[var(--gold)] hover:-translate-y-0.5 transition-transform cursor-pointer"
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.97 }}
+            transition={springSoft}
+            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--gold)] text-[var(--ink)] border border-[var(--gold)] cursor-pointer"
           >
             + Add GST company
-          </button>
-          <button
+          </motion.button>
+          <motion.button
             type="button"
             onClick={onExportCsv}
-            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--card)] text-[var(--ink)] border border-[var(--line)] hover:-translate-y-0.5 transition-transform cursor-pointer"
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.97 }}
+            transition={springSoft}
+            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--card)] text-[var(--ink)] border border-[var(--line)] cursor-pointer"
           >
             Export CSV
-          </button>
-        </div>
-      </header>
+          </motion.button>
+        </motion.div>
+      </motion.header>
 
       {/* KPI strip */}
-      <section
+      <motion.section
         ref={kpi.ref}
         className="grid grid-cols-1 md:grid-cols-12 gap-3"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.12, duration: 0.45 }}
       >
-        <div className="md:col-span-5 relative overflow-hidden rounded-2xl bg-grad-navy text-white p-4 flex justify-between items-center gap-3 shadow-card">
+        <div className="md:col-span-5 relative overflow-hidden rounded-2xl bg-grad-navy text-white p-4 flex justify-between items-center gap-3 shadow-card motion-lift">
           <div
             aria-hidden
             className="absolute w-[160px] h-[160px] rounded-full bg-white/10 -right-12 -top-14"
@@ -580,7 +599,7 @@ export function OverallDashboard({
             {filings} filings across {periods} periods
           </p>
         </div>
-      </section>
+      </motion.section>
 
       {/* IT */}
       <h3
@@ -813,7 +832,7 @@ export function OverallDashboard({
           )}
         </div>
 
-        <div className="xl:col-span-4 rounded-2xl bg-[var(--card)] p-4 shadow-card h-[420px] flex flex-col">
+        <div className="xl:col-span-4 rounded-2xl bg-[var(--card)] p-4 shadow-card flex flex-col min-h-0">
           <div className="flex justify-between items-center gap-2 shrink-0">
             <h2 className="text-base font-semibold text-[var(--ink)]">Collection share</h2>
             <strong className="text-sm text-[var(--success)]">
@@ -865,7 +884,7 @@ export function OverallDashboard({
               {itClients.length}
             </span>
           </div>
-          <div className="mt-2 flex-1 flex flex-col justify-between gap-1.5 min-h-0">
+          <div className="mt-2 flex flex-col gap-1.5">
             {filedYearBuckets.map((b) => (
               <div
                 key={b.id}
@@ -889,7 +908,7 @@ export function OverallDashboard({
           <button
             type="button"
             onClick={onOpenItAllData}
-            className="mt-2.5 w-full text-xs font-semibold text-[var(--ink)] py-2 rounded-full border border-[var(--line)] hover:bg-[var(--frost-100)] cursor-pointer shrink-0"
+            className="mt-3 w-full text-xs font-semibold text-[var(--ink)] py-2.5 rounded-full border border-[var(--line)] bg-[var(--card)] hover:bg-[var(--frost-100)] cursor-pointer shrink-0 relative z-10"
           >
             Open IT all data →
           </button>
@@ -1387,7 +1406,7 @@ export function OverallDashboard({
           )}
         </div>
 
-        <div className="xl:col-span-4 rounded-2xl bg-[var(--card)] p-4 shadow-card h-[420px] flex flex-col">
+        <div className="xl:col-span-4 rounded-2xl bg-[var(--card)] p-4 shadow-card flex flex-col min-h-0">
           <div className="flex justify-between items-center gap-2 shrink-0">
             <h2 className="text-base font-semibold text-[var(--ink)]">GST totals</h2>
             <strong className="text-sm text-[var(--success)]">
@@ -1437,7 +1456,7 @@ export function OverallDashboard({
               {gstClients.length}
             </span>
           </div>
-          <div className="mt-2 flex-1 flex flex-col justify-between gap-1.5 min-h-0">
+          <div className="mt-2 flex flex-col gap-1.5">
             {filedMonthBuckets.map((b) => (
               <div
                 key={b.id}
@@ -1461,7 +1480,7 @@ export function OverallDashboard({
           <button
             type="button"
             onClick={onOpenGstAllData}
-            className="mt-2.5 w-full text-xs font-semibold text-[var(--ink)] py-2 rounded-full border border-[var(--line)] hover:bg-[var(--frost-100)] cursor-pointer shrink-0"
+            className="mt-3 w-full text-xs font-semibold text-[var(--ink)] py-2.5 rounded-full border border-[var(--line)] bg-[var(--card)] hover:bg-[var(--frost-100)] cursor-pointer shrink-0 relative z-10"
           >
             Open GST all data →
           </button>

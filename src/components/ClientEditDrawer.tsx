@@ -4,8 +4,14 @@ import type { ClientRecord, FilingRecord } from '../types/ledger.ts';
 import {
   computeClientTotals,
   formatPlainNumber,
+  normalizePan,
   sortAssessmentYears,
 } from '../utils/ledgerUtils.ts';
+import {
+  FIELD_LIMITS,
+  isValidPanFormat,
+  validateOptionalPhone,
+} from '../utils/fieldValidation.ts';
 
 export type ItDrawerMode = 'edit' | 'history';
 
@@ -52,7 +58,7 @@ export function ClientEditDrawer({
     setShowPassword(false);
     setName(client.name);
     setPan(client.pan);
-    setPassword(client.password);
+    setPassword('');
     setPhone(client.phone || '');
     setReferenceNumber(client.referenceNumber || '');
     setRemark(client.remark || '');
@@ -81,11 +87,32 @@ export function ClientEditDrawer({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanName = name.trim();
-    const cleanPan = pan.trim();
+    const cleanName = name.trim().slice(0, FIELD_LIMITS.name);
+    const cleanPan = normalizePan(pan);
     const cleanPassword = password.trim();
-    if (!cleanName || !cleanPan || !cleanPassword) {
-      setError('Name, PAN, and Password are mandatory.');
+    const keepExisting = !!client.hasPortalPassword && !cleanPassword;
+    const panUnchanged = cleanPan === normalizePan(client.pan || '');
+    if (!cleanName || !cleanPan || (!cleanPassword && !keepExisting)) {
+      setError(
+        client.hasPortalPassword
+          ? 'Name and PAN are mandatory. Leave password blank to keep the stored portal password.'
+          : 'Name, PAN, and Password are mandatory.'
+      );
+      return;
+    }
+    if (!panUnchanged && !isValidPanFormat(cleanPan)) {
+      setError(
+        'Invalid PAN format (e.g. ABCDE1234F). This does not verify the PAN with the Income Tax Department.'
+      );
+      return;
+    }
+    const phoneCheck = validateOptionalPhone(phone);
+    if (!phoneCheck.ok) {
+      setError(phoneCheck.error);
+      return;
+    }
+    if (remark.trim().length > FIELD_LIMITS.remark) {
+      setError(`Remark must be at most ${FIELD_LIMITS.remark} characters.`);
       return;
     }
 
@@ -178,22 +205,36 @@ export function ClientEditDrawer({
                 <input
                   type="text"
                   value={pan}
-                  onChange={(e) => setPan(e.target.value)}
-                  className={`w-full px-3 py-2 text-sm font-mono border border-[var(--line)] rounded-xl bg-[var(--card)] focus:outline-none focus:border-[var(--blue-500)] ${focusRing}`}
+                  onChange={(e) => setPan(normalizePan(e.target.value))}
+                  maxLength={FIELD_LIMITS.pan}
+                  className={`w-full px-3 py-2 text-sm font-mono uppercase border border-[var(--line)] rounded-xl bg-[var(--card)] focus:outline-none focus:border-[var(--blue-500)] ${focusRing}`}
                   required
                 />
               </div>
               <div>
                 <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                  Password *
+                  Password{' '}
+                  {client.hasPortalPassword ? (
+                    <span className="text-[var(--muted)] font-normal">
+                      (leave blank to keep stored)
+                    </span>
+                  ) : (
+                    '*'
+                  )}
                 </label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    placeholder={
+                      client.hasPortalPassword
+                        ? 'Leave blank to keep stored password'
+                        : 'Password'
+                    }
+                    autoComplete="new-password"
                     className={`w-full px-3 py-2 pr-10 text-sm font-mono border border-[var(--line)] rounded-xl bg-[var(--card)] focus:outline-none focus:border-[var(--blue-500)] ${focusRing}`}
-                    required
+                    required={!client.hasPortalPassword}
                   />
                   <button
                     type="button"

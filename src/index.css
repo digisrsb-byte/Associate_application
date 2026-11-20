@@ -120,6 +120,69 @@
   }
 }
 
+/* Full-screen login atmosphere */
+.login-mesh {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 70% at 40% 40%, #000 20%, transparent 75%);
+}
+
+.login-glass {
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+}
+
+.motion-lift {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease;
+}
+
+.motion-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 36px rgba(47, 77, 191, 0.16);
+}
+
+/* Table / list polish */
+.ledger-row-motion {
+  transition: background-color 0.18s ease, transform 0.18s ease;
+}
+
+.ledger-row-motion:hover {
+  background-color: color-mix(in srgb, var(--blue-500) 6%, var(--card));
+}
+
+button,
+.cursor-pointer {
+  transition: transform 0.15s ease, filter 0.15s ease, background-color 0.15s ease;
+}
+
+@keyframes sticker-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--sticker-rot, 0deg));
+  }
+  50% {
+    transform: translateY(-6px) rotate(var(--sticker-rot, 0deg));
+  }
+}
+
+.sticker-float {
+  animation: sticker-float 4.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-screen *,
+  .motion-lift,
+  .sticker-float,
+  .ledger-row-motion {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
 .ledger-scroll::-webkit-scrollbar {
   height: 7px;
   width: 7px;

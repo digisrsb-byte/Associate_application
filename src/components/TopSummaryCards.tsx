@@ -1,5 +1,7 @@
 import { ArrowUpRight, IndianRupee, Users, Wallet } from 'lucide-react';
+import { motion } from 'motion/react';
 import { formatCurrency } from '../utils/ledgerUtils.ts';
+import { cardPop, staggerContainer } from '../motion/presets.ts';
 
 interface TopSummaryCardsProps {
   totalClients: number;
@@ -30,12 +32,19 @@ export function TopSummaryCards({
   const outstandingPct = totalBilled > 0 ? Math.min(100, (outstandingTotal / totalBilled) * 100) : 0;
 
   return (
-    <section
+    <motion.section
       aria-label="Key ledger totals"
       className="grid grid-cols-1 md:grid-cols-3 gap-3"
+      variants={staggerContainer}
+      initial="hidden"
+      animate="show"
     >
-      {/* Total Received — royal blue like Scheduly booking card */}
-      <div className="relative overflow-hidden rounded-2xl bg-[var(--navy-900)] text-white p-3.5 shadow-card flex flex-col justify-between gap-3">
+      {/* Total Received */}
+      <motion.div
+        variants={cardPop}
+        whileHover={{ y: -4, transition: { type: 'spring', stiffness: 380, damping: 24 } }}
+        className="relative overflow-hidden rounded-2xl bg-[var(--navy-900)] text-white p-3.5 shadow-card flex flex-col justify-between gap-3"
+      >
         <svg
           aria-hidden="true"
           viewBox="0 0 220 90"
@@ -66,9 +75,13 @@ export function TopSummaryCards({
               {formatCurrency(totalReceived)}
             </p>
           </div>
-          <div className="p-2 rounded-lg bg-white/15 text-[var(--gold)] shrink-0">
+          <motion.div
+            className="p-2 rounded-lg bg-white/15 text-[var(--gold)] shrink-0"
+            animate={{ rotate: [0, -8, 0] }}
+            transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+          >
             <IndianRupee className="w-3.5 h-3.5" />
-          </div>
+          </motion.div>
         </div>
 
         <div className="relative space-y-1">
@@ -77,16 +90,22 @@ export function TopSummaryCards({
             <span>Billed {formatCurrency(totalBilled)}</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-white/20 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-[var(--gold)] transition-all duration-300"
-              style={{ width: `${collectionPct}%` }}
+            <motion.div
+              className="h-full rounded-full bg-[var(--gold)]"
+              initial={{ width: 0 }}
+              animate={{ width: `${collectionPct}%` }}
+              transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
             />
           </div>
         </div>
-      </div>
+      </motion.div>
 
-      {/* Outstanding — slightly deeper soft blue */}
-      <div className="relative overflow-hidden rounded-2xl bg-grad-soft text-[var(--ink)] p-3.5 shadow-card flex flex-col justify-between gap-3 ring-1 ring-[var(--navy-900)]/10">
+      {/* Outstanding */}
+      <motion.div
+        variants={cardPop}
+        whileHover={{ y: -4, transition: { type: 'spring', stiffness: 380, damping: 24 } }}
+        className="relative overflow-hidden rounded-2xl bg-grad-soft text-[var(--ink)] p-3.5 shadow-card flex flex-col justify-between gap-3 ring-1 ring-[var(--navy-900)]/10"
+      >
         <svg
           aria-hidden="true"
           viewBox="0 0 220 90"
@@ -128,16 +147,22 @@ export function TopSummaryCards({
             <span>{outstandingTotal > 0 ? 'Balance due' : 'All cleared'}</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-[var(--navy-900)]/15 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-[var(--navy-900)] transition-all duration-300"
-              style={{ width: `${outstandingPct}%` }}
+            <motion.div
+              className="h-full rounded-full bg-[var(--navy-900)]"
+              initial={{ width: 0 }}
+              animate={{ width: `${outstandingPct}%` }}
+              transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
             />
           </div>
         </div>
-      </div>
+      </motion.div>
 
-      {/* Third KPI — white + blue progress */}
-      <div className="relative overflow-hidden rounded-2xl bg-[var(--card)] text-[var(--ink)] p-3.5 shadow-card flex flex-col justify-between gap-3">
+      {/* Third KPI */}
+      <motion.div
+        variants={cardPop}
+        whileHover={{ y: -4, transition: { type: 'spring', stiffness: 380, damping: 24 } }}
+        className="relative overflow-hidden rounded-2xl bg-[var(--card)] text-[var(--ink)] p-3.5 shadow-card flex flex-col justify-between gap-3"
+      >
         <div className="relative flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
@@ -168,13 +193,17 @@ export function TopSummaryCards({
             </span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-[var(--frost-100)] overflow-hidden flex">
-            <div
-              className="h-full bg-[var(--blue-500)] rounded-full transition-all duration-300"
-              style={{ width: `${totalClients > 0 ? Math.min(100, (totalEntries / Math.max(1, totalClients * Math.max(1, yearsCount))) * 100 + 25) : 0}%` }}
+            <motion.div
+              className="h-full bg-[var(--blue-500)] rounded-full"
+              initial={{ width: 0 }}
+              animate={{
+                width: `${totalClients > 0 ? Math.min(100, (totalEntries / Math.max(1, totalClients * Math.max(1, yearsCount))) * 100 + 25) : 0}%`,
+              }}
+              transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
             />
           </div>
         </div>
-      </div>
-    </section>
+      </motion.div>
+    </motion.section>
   );
 }

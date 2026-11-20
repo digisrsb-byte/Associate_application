@@ -131,7 +131,7 @@ function writeGstAllData(
       row.getCell(2).value = sl++;
       row.getCell(3).value = client.companyName;
       row.getCell(4).value = client.userId;
-      row.getCell(5).value = client.password || '';
+      row.getCell(5).value = '';
       setMobile(row.getCell(6), client.phone);
       row.getCell(7).value = client.referenceNumber || '';
       row.getCell(8).value = client.remark || '';
@@ -155,7 +155,7 @@ function writeGstAllData(
     row.getCell(2).value = sl++;
     row.getCell(3).value = client.companyName;
     row.getCell(4).value = client.userId;
-    row.getCell(5).value = client.password || '';
+    row.getCell(5).value = '';
     setMobile(row.getCell(6), client.phone);
     row.getCell(7).value = client.referenceNumber || '';
     row.getCell(8).value = client.remark || '';
@@ -222,7 +222,7 @@ function writeGstSheetView(
     const feesRow = sheet.addRow([
       client.companyName,
       client.userId,
-      client.password || '',
+      '',
       client.phone || '',
       client.referenceNumber || '',
       client.remark || '',

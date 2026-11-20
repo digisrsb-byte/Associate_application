@@ -1,0 +1,17 @@
+{
+  "_comment": "Test-only shape fixture for sample IT clients. No portal passwords, no admin credentials. Not loaded by the production server runtime.",
+  "assessmentYears": ["AY 2025-26", "AY 2026-27"],
+  "clients": [
+    {
+      "id": "fixture-1",
+      "name": "Sample Client One",
+      "pan": "ABCPA1234A",
+      "phone": "9000000001",
+      "referenceNumber": "FIX-01",
+      "remark": "Fixture only — no portal password",
+      "filings": {}
+    }
+  ],
+  "gstMonths": ["Apr 2026"],
+  "gstClients": []
+}

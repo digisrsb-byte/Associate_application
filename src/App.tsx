@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { LayoutGrid, Search, Table2 } from 'lucide-react';
 import type {
   ClientRecord,
@@ -56,8 +57,16 @@ import {
 } from './components/ClientEditDrawer.tsx';
 import { ToastBanner, type ToastMessage } from './components/ToastBanner.tsx';
 import { DataTransferModal } from './components/DataTransferModal.tsx';
+import { LoginPage } from './components/LoginPage.tsx';
+import { PageFade } from './components/MotionBits.tsx';
+import { apiFetch } from './utils/api.ts';
+
+type AuthStatus = 'checking' | 'loggedOut' | 'loggedIn';
 
 export default function App() {
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('checking');
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
   const [ledger, setLedger] = useState<LedgerState>({
     assessmentYears: [],
     clients: [],
@@ -96,11 +105,26 @@ export default function App() {
     existing?: GstMonthlyFiling;
   } | null>(null);
 
+  const handleUnauthorized = () => {
+    setAuthStatus('loggedOut');
+    setUserEmail(null);
+    setLedger({
+      assessmentYears: [],
+      clients: [],
+      gstMonths: [],
+      gstClients: [],
+    });
+  };
+
   const fetchLedger = async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch('/api/ledger');
+      const res = await apiFetch('/api/ledger');
+      if (res.status === 401) {
+        handleUnauthorized();
+        throw new Error('Session expired. Please log in again.');
+      }
       if (!res.ok) throw new Error('Unable to load records.');
       const data = (await res.json()) as LedgerState;
       setLedger({
@@ -117,8 +141,60 @@ export default function App() {
   };
 
   useEffect(() => {
-    void fetchLedger();
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch('/api/auth/me');
+        if (cancelled) return;
+        if (!res.ok) {
+          setAuthStatus('loggedOut');
+          setLoading(false);
+          return;
+        }
+        const data = (await res.json()) as {
+          authenticated?: boolean;
+          email?: string;
+        };
+        if (data.authenticated) {
+          setUserEmail(data.email || null);
+          setAuthStatus('loggedIn');
+        } else {
+          setAuthStatus('loggedOut');
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setAuthStatus('loggedOut');
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (authStatus === 'loggedIn') {
+      void fetchLedger();
+    }
+  }, [authStatus]);
+
+  const handleLoginSuccess = (email: string) => {
+    setUserEmail(email);
+    setAuthStatus('loggedIn');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // ignore network errors on logout
+    }
+    handleUnauthorized();
+    setLoading(false);
+    setLoadError(null);
+  };
 
   const filteredClients = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -254,13 +330,15 @@ export default function App() {
     initialFiling?: FilingRecord;
   }) => {
     if (payload.id) {
-      const res = await fetch(`/api/clients/${payload.id}`, {
+      const res = await apiFetch(`/api/clients/${payload.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: payload.name,
           pan: payload.pan,
-          password: payload.password,
+          ...(payload.password.trim()
+            ? { password: payload.password }
+            : {}),
           phone: payload.phone,
           referenceNumber: payload.referenceNumber,
           remark: payload.remark,
@@ -275,7 +353,7 @@ export default function App() {
       if (payload.initialFiling) {
         filings[payload.initialFiling.assessmentYear] = payload.initialFiling;
       }
-      const res = await fetch('/api/clients', {
+      const res = await apiFetch('/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -297,7 +375,7 @@ export default function App() {
 
   const handleDeleteClient = async (clientId: string) => {
     try {
-      const res = await fetch(`/api/clients/${clientId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/clients/${clientId}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete client.');
       setLedger(data.ledger);
@@ -312,7 +390,7 @@ export default function App() {
   };
 
   const handleSaveFiling = async (clientId: string, filing: FilingRecord) => {
-    const res = await fetch(`/api/clients/${clientId}/filings`, {
+    const res = await apiFetch(`/api/clients/${clientId}/filings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(filing),
@@ -323,7 +401,7 @@ export default function App() {
   };
 
   const handleDeleteFiling = async (clientId: string, year: string) => {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/clients/${clientId}/filings/${encodeURIComponent(year)}`,
       { method: 'DELETE' }
     );
@@ -335,7 +413,7 @@ export default function App() {
   const handleAddYearColumn = async (rawLabel: string) => {
     const normalized = normalizeAssessmentYearLabel(rawLabel);
     if (!normalized) return;
-    const res = await fetch('/api/years', {
+    const res = await apiFetch('/api/years', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ year: normalized }),
@@ -389,13 +467,15 @@ export default function App() {
     initialFiling?: GstMonthlyFiling;
   }) => {
     if (payload.id) {
-      const res = await fetch(`/api/gst/clients/${payload.id}`, {
+      const res = await apiFetch(`/api/gst/clients/${payload.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyName: payload.companyName,
           userId: payload.userId,
-          password: payload.password,
+          ...(payload.password.trim()
+            ? { password: payload.password }
+            : {}),
           phone: payload.phone,
           referenceNumber: payload.referenceNumber,
           remark: payload.remark,
@@ -413,7 +493,7 @@ export default function App() {
       if (payload.initialFiling) {
         filings[payload.initialFiling.month] = payload.initialFiling;
       }
-      const res = await fetch('/api/gst/clients', {
+      const res = await apiFetch('/api/gst/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -435,7 +515,7 @@ export default function App() {
 
   const handleDeleteGstCompany = async (companyId: string) => {
     try {
-      const res = await fetch(`/api/gst/clients/${companyId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/gst/clients/${companyId}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete GST company.');
       setLedger(data.ledger);
@@ -450,7 +530,7 @@ export default function App() {
   };
 
   const handleSaveGstFiling = async (companyId: string, filing: GstMonthlyFiling) => {
-    const res = await fetch(`/api/gst/clients/${companyId}/filings`, {
+    const res = await apiFetch(`/api/gst/clients/${companyId}/filings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(filing),
@@ -461,7 +541,7 @@ export default function App() {
   };
 
   const handleDeleteGstFiling = async (companyId: string, month: string) => {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/gst/clients/${companyId}/filings/${encodeURIComponent(month)}`,
       { method: 'DELETE' }
     );
@@ -473,7 +553,7 @@ export default function App() {
   const handleAddMonthColumn = async (rawLabel: string) => {
     const normalized = normalizeGstMonthLabel(rawLabel);
     if (!normalized) return;
-    const res = await fetch('/api/gst/months', {
+    const res = await apiFetch('/api/gst/months', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ month: normalized }),
@@ -616,8 +696,22 @@ export default function App() {
         ? itTotalsSummary
         : gstTotalsSummary;
 
+  if (authStatus === 'checking') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--bg)] text-[var(--muted)] text-sm">
+        Checking session…
+      </div>
+    );
+  }
+
+  if (authStatus === 'loggedOut') {
+    return <LoginPage onSuccess={handleLoginSuccess} />;
+  }
+
+  const viewKey = `${mainSection}-${activeTab}-${dataViewMode}`;
+
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--ink)] flex flex-col lg:flex-row">
+    <div className="h-dvh max-h-dvh bg-[var(--bg)] text-[var(--ink)] flex flex-col lg:flex-row overflow-hidden">
       <MobileHeader
         mainSection={mainSection}
         activeTab={activeTab}
@@ -637,17 +731,25 @@ export default function App() {
         onOpenDataTransfer={() => setTransferOpen(true)}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
+        userEmail={userEmail}
+        onLogout={() => void handleLogout()}
       />
 
-      <main
-        className={`flex-1 min-w-0 w-full mx-auto py-4 space-y-4 ${
-          activeTab === 'year-summary'
-            ? 'max-w-[1280px] px-3 sm:px-4 lg:px-2'
-            : 'max-w-[1680px] px-3 sm:px-5 lg:px-5'
-        }`}
-      >
+      <main className="relative z-0 flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain">
+        <div
+          className={`mx-auto w-full py-4 space-y-4 ${
+            activeTab === 'year-summary'
+              ? 'max-w-[1280px] px-3 sm:px-4 lg:px-4'
+              : 'max-w-[1680px] px-3 sm:px-5 lg:px-5'
+          }`}
+        >
         {activeTab !== 'year-summary' && (
-          <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+          <motion.header
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+            className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2"
+          >
             <div>
               <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink)]">
                 {viewHeading}
@@ -680,7 +782,7 @@ export default function App() {
                 )}
               </div>
             </div>
-          </header>
+          </motion.header>
         )}
 
         {activeTab !== 'year-summary' && (
@@ -780,7 +882,10 @@ export default function App() {
               Retry
             </button>
           </div>
-        ) : activeTab === 'year-summary' ? (
+        ) : (
+        <AnimatePresence mode="wait">
+        <PageFade id={viewKey}>
+        {activeTab === 'year-summary' ? (
           <OverallDashboard
             itClients={ledger.clients}
             assessmentYears={ledger.assessmentYears}
@@ -882,6 +987,10 @@ export default function App() {
             months={visibleGstMonths}
           />
         )}
+        </PageFade>
+        </AnimatePresence>
+        )}
+        </div>
       </main>
 
       {/* IT Modals / Drawer */}

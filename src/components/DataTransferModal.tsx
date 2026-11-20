@@ -128,6 +128,9 @@ export function DataTransferModal({
     filingsUpdated: number;
     filingsSkipped: number;
     backupFile: string;
+    invalidPanCount?: number;
+    invalidPanRows?: Array<{ pan: string; name: string; reason: string }>;
+    note?: string;
   } | null>(null);
   const [checkResults, setCheckResults] = useState<{
     mobile?: ReturnType<typeof checkMobileSummary>;
@@ -429,6 +432,7 @@ export function DataTransferModal({
         }
         const res = await fetch('/api/import/gst', {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             mode,
@@ -485,6 +489,7 @@ export function DataTransferModal({
       if (clients.length > 0) {
         const res = await fetch('/api/import/it', {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             mode,
@@ -1044,10 +1049,29 @@ export function DataTransferModal({
                     {importReport.filingsSkipped}
                   </p>
                   <p>Backup: {importReport.backupFile}</p>
-                  <p className="text-[var(--muted)]">
-                    Password is taken from the Excel Password column when
-                    present; otherwise new clients get &apos;NOT SET&apos;.
-                  </p>
+                  {typeof importReport.invalidPanCount === 'number' &&
+                    importReport.invalidPanCount > 0 && (
+                      <div className="mt-2 space-y-1 text-[var(--danger)]">
+                        <p className="font-semibold">
+                          Invalid PAN rows skipped:{' '}
+                          {importReport.invalidPanCount} (existing ledger data
+                          kept)
+                        </p>
+                        <ul className="max-h-28 overflow-auto list-disc pl-4">
+                          {(importReport.invalidPanRows || [])
+                            .slice(0, 20)
+                            .map((row, i) => (
+                              <li key={`${row.pan}-${i}`}>
+                                {row.pan || '(empty)'}
+                                {row.name ? ` · ${row.name}` : ''}
+                              </li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
+                  {importReport.note && (
+                    <p className="text-[var(--muted)]">{importReport.note}</p>
+                  )}
                 </div>
               )}
 

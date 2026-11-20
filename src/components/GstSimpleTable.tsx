@@ -5,8 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Eye,
-  EyeOff,
   LayoutGrid,
   Plus,
   RotateCcw,
@@ -22,6 +20,7 @@ import {
   sortGstMonths,
 } from '../utils/ledgerUtils.ts';
 import { CompanyRowMenu } from './CompanyRowMenu.tsx';
+import { PortalPasswordCell } from './PortalPasswordCell.tsx';
 
 interface GstSimpleTableProps {
   clients: GstClientRecord[];
@@ -86,7 +85,6 @@ export function GstSimpleTable({
   onAddCompanyClick,
 }: GstSimpleTableProps) {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
-  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [showAllMonths, setShowAllMonths] = useState(false);
   const [monthMenuOpen, setMonthMenuOpen] = useState(false);
@@ -457,7 +455,6 @@ export function GstSimpleTable({
           <tbody className="divide-y divide-[var(--line)]">
             {clients.map((company) => {
               const isExpanded = Boolean(expandedIds[company.id]);
-              const isRevealed = Boolean(revealedPasswords[company.id]);
               const totals = computeGstClientTotals(company);
               const allCompanyMonths = sortGstMonths(
                 Object.keys(company.filings || {}).filter((m) =>
@@ -478,7 +475,7 @@ export function GstSimpleTable({
 
               return (
                 <Fragment key={company.id}>
-                  <tr className="group hover:bg-[var(--frost-100)] transition-colors">
+                  <tr className="group ledger-row-motion hover:bg-[var(--frost-100)]">
                     <td className="pl-2.5 pr-1 py-2.5 text-center">
                       <button
                         type="button"
@@ -523,36 +520,11 @@ export function GstSimpleTable({
                     </td>
 
                     <td className="px-2.5 py-2.5 whitespace-nowrap">
-                      <div className="inline-flex items-center gap-0.5 font-mono text-[11px] text-[var(--ink)]">
-                        <span className="max-w-[90px] truncate">
-                          {isRevealed ? company.password : '••••••••'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setRevealedPasswords((p) => ({
-                              ...p,
-                              [company.id]: !p[company.id],
-                            }))
-                          }
-                          className="p-0.5 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
-                          title={isRevealed ? 'Hide password' : 'Show password'}
-                        >
-                          {isRevealed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => copyValue(`gpwd-${company.id}`, company.password)}
-                          className="p-0.5 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
-                          title="Copy password"
-                        >
-                          {copiedKey === `gpwd-${company.id}` ? (
-                            <Check className="w-3 h-3 text-[var(--success)]" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </button>
-                      </div>
+                      <PortalPasswordCell
+                        kind="gst"
+                        id={company.id}
+                        hasPassword={!!company.hasPortalPassword}
+                      />
                     </td>
 
                     <td className="px-2.5 py-2.5 font-mono text-[11px] text-[var(--muted)] whitespace-nowrap">

@@ -1,0 +1,94 @@
+{
+  "ok": true,
+  "base": "http://127.0.0.1:3000",
+  "expectSecure": false,
+  "cookieSecureMode": "true",
+  "results": [
+    {
+      "name": "Health reachable",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "Login succeeds",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "Set-Cookie HttpOnly",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Set-Cookie SameSite=Lax",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Set-Cookie Secure absent (local HTTP UAT)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Session persistence (/api/auth/me)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Spoofed X-Forwarded-Proto does not force Secure (TRUST_PROXY off)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Logout ok",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Logout clears Max-Age=0",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Logout clear cookie Secure absent (local)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Session invalid after logout",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Forgot-password ok (no token in body)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Local reset token file readable",
+      "ok": true,
+      "detail": "present"
+    },
+    {
+      "name": "Password reset with token",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "Forgot for restore",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Restore original admin password",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "Re-login with restored password",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "at": "2026-11-20T10:40:23.815Z"
+}

@@ -1,0 +1,100 @@
+{
+  "phase": 4,
+  "base": "http://127.0.0.1:3000",
+  "at": "2026-11-20T10:40:22.459Z",
+  "passed": 18,
+  "failed": 0,
+  "total": 18,
+  "results": [
+    {
+      "name": "Server health",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "No hardcoded Admin@123 fallback in server.ts",
+      "pass": true,
+      "detail": "server runtime defaults removed"
+    },
+    {
+      "name": ".env.example does not ship default admin password",
+      "pass": true,
+      "detail": "example cleaned"
+    },
+    {
+      "name": "setup-status reports configured for existing install",
+      "pass": true,
+      "detail": "configured=true bootstrap=false"
+    },
+    {
+      "name": "Existing administrator login still works",
+      "pass": true,
+      "detail": "login ok (password not printed)"
+    },
+    {
+      "name": "Incorrect password rejected",
+      "pass": true,
+      "detail": "status=401"
+    },
+    {
+      "name": "Repeated bootstrap rejected when auth.json exists",
+      "pass": true,
+      "detail": "status=409"
+    },
+    {
+      "name": "Bootstrap response does not include password fields",
+      "pass": true,
+      "detail": "keys=error"
+    },
+    {
+      "name": "Isolated server started for bootstrap tests",
+      "pass": true,
+      "detail": "port=3461"
+    },
+    {
+      "name": "Missing auth.json → bootstrapRequired",
+      "pass": true,
+      "detail": "bootstrap=true"
+    },
+    {
+      "name": "Weak bootstrap password rejected",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "name": "Too-short bootstrap password rejected",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "name": "Strong bootstrap password accepted (one-time)",
+      "pass": true,
+      "detail": "status=201"
+    },
+    {
+      "name": "Bootstrap success response has no plaintext password",
+      "pass": true,
+      "detail": "keys=ok,message,email"
+    },
+    {
+      "name": "Second bootstrap rejected after setup",
+      "pass": true,
+      "detail": "status=409"
+    },
+    {
+      "name": "Login works after bootstrap",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "Original administrator access restored after bootstrap isolation test",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "auth/me does not expose password hashes",
+      "pass": true,
+      "detail": "keys=authenticated,email"
+    }
+  ]
+}

@@ -14,7 +14,15 @@ export interface ClientRecord {
   id: string;
   name: string;
   pan: string;
-  password: string;
+  /**
+   * Legacy plaintext portal password (migrated off disk).
+   * Ordinary API responses never include this field.
+   */
+  password?: string;
+  /** AES-256-GCM ciphertext at rest only — never returned to ordinary API clients. */
+  passwordEnc?: string;
+  /** Present on sanitized API payloads: whether a portal password is stored. */
+  hasPortalPassword?: boolean;
   phone: string;
   referenceNumber: string;
   remark?: string;
@@ -39,7 +47,12 @@ export interface GstClientRecord {
   id: string;
   companyName: string;
   userId: string;
-  password: string;
+  /** Legacy plaintext — migrated off disk; never in ordinary API responses. */
+  password?: string;
+  /** AES-256-GCM ciphertext at rest only — never returned to ordinary API clients. */
+  passwordEnc?: string;
+  /** Present on sanitized API payloads: whether a portal password is stored. */
+  hasPortalPassword?: boolean;
   phone: string;
   referenceNumber: string;
   remark?: string;

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
 import { Eye, EyeOff, X } from 'lucide-react';
+import { fadeScale, overlayFade } from '../motion/presets.ts';
 import type { ClientRecord, FilingRecord } from '../types/ledger.ts';
 import { PAYMENT_TYPES } from '../types/ledger.ts';
 import {
@@ -7,6 +9,11 @@ import {
   normalizeAssessmentYearLabel,
   normalizePan,
 } from '../utils/ledgerUtils.ts';
+import {
+  FIELD_LIMITS,
+  isValidPanFormat,
+  validateOptionalPhone,
+} from '../utils/fieldValidation.ts';
 import { LimeSelect } from './LimeSelect.tsx';
 
 interface ClientModalProps {
@@ -60,7 +67,7 @@ export function ClientModal({
     if (editingClient) {
       setName(editingClient.name);
       setPan(editingClient.pan);
-      setPassword(editingClient.password);
+      setPassword('');
       setPhone(editingClient.phone || '');
       setReferenceNumber(editingClient.referenceNumber || '');
       setRemark(editingClient.remark || '');
@@ -90,12 +97,40 @@ export function ClientModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanName = name.trim();
+    const cleanName = name.trim().slice(0, FIELD_LIMITS.name);
     const cleanPan = normalizePan(pan);
     const cleanPassword = password.trim();
+    const keepExisting =
+      !!editingClient?.hasPortalPassword && !cleanPassword;
+    const panUnchanged =
+      !!editingClient &&
+      cleanPan === normalizePan(editingClient.pan || '');
 
-    if (!cleanName || !cleanPan || !cleanPassword) {
-      setError('Name, PAN, and Password are mandatory.');
+    if (!cleanName || !cleanPan || (!cleanPassword && !keepExisting)) {
+      setError(
+        editingClient?.hasPortalPassword
+          ? 'Name and PAN are mandatory. Leave password blank to keep the stored portal password.'
+          : 'Name, PAN, and Password are mandatory.'
+      );
+      return;
+    }
+    if (name.trim().length > FIELD_LIMITS.name) {
+      setError(`Name must be at most ${FIELD_LIMITS.name} characters.`);
+      return;
+    }
+    if (!panUnchanged && !isValidPanFormat(cleanPan)) {
+      setError(
+        'Invalid PAN format (e.g. ABCDE1234F). This does not verify the PAN with the Income Tax Department.'
+      );
+      return;
+    }
+    const phoneCheck = validateOptionalPhone(phone);
+    if (!phoneCheck.ok) {
+      setError(phoneCheck.error);
+      return;
+    }
+    if (remark.trim().length > FIELD_LIMITS.remark) {
+      setError(`Remark must be at most ${FIELD_LIMITS.remark} characters.`);
       return;
     }
 
@@ -139,13 +174,21 @@ export function ClientModal({
   };
 
   return (
-    <div
+    <motion.div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--navy-900)]/50 backdrop-blur-[1px] p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="client-modal-title"
+      variants={overlayFade}
+      initial="hidden"
+      animate="show"
     >
-      <div className="bg-[var(--card)] border border-[var(--line)] rounded-2xl w-full max-w-xl shadow-xl overflow-hidden my-auto">
+      <motion.div
+        variants={fadeScale}
+        initial="hidden"
+        animate="show"
+        className="bg-[var(--card)] border border-[var(--line)] rounded-2xl w-full max-w-xl shadow-xl overflow-hidden my-auto"
+      >
         <div className="px-6 py-4 bg-[var(--navy-900)] text-white flex items-center justify-between">
           <h2 id="client-modal-title" className="font-display text-base font-semibold">
             {editingClient ? 'Edit Client' : 'Add Client'}
@@ -177,6 +220,7 @@ export function ClientModal({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                maxLength={FIELD_LIMITS.name}
                 placeholder="Client Name"
                 className="w-full px-3 py-2 text-sm border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
               />
@@ -189,7 +233,7 @@ export function ClientModal({
               <input
                 type="text"
                 required
-                maxLength={10}
+                maxLength={FIELD_LIMITS.pan}
                 value={pan}
                 onChange={(e) => setPan(normalizePan(e.target.value))}
                 placeholder="ABCDE1234F"
@@ -199,15 +243,27 @@ export function ClientModal({
 
             <div>
               <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                Password <span className="text-[var(--danger)]">*</span>
+                Password{' '}
+                {editingClient?.hasPortalPassword ? (
+                  <span className="text-[var(--muted)] font-normal">
+                    (leave blank to keep stored)
+                  </span>
+                ) : (
+                  <span className="text-[var(--danger)]">*</span>
+                )}
               </label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  required
+                  required={!editingClient?.hasPortalPassword}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
+                  placeholder={
+                    editingClient?.hasPortalPassword
+                      ? 'Leave blank to keep stored password'
+                      : 'Password'
+                  }
+                  autoComplete="new-password"
                   className="w-full px-3 py-2 pr-9 text-sm font-mono border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
                 />
                 <button
@@ -388,7 +444,7 @@ export function ClientModal({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

@@ -6,3 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
+data/auth.json
+data/auth.json.tmp
+data/PASSWORD_RESET_TOKEN.txt
+data/PASSWORD_RESET_TOKEN.txt.tmp
+# Phase 6A — never commit backups (plaintext or encrypted ciphertext + PII)
+data/backups/
+data/ledger.pre-auto-test-backup.json
+data/ledger*.pre-*.json
+*.aes

@@ -10,8 +10,6 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  Eye,
-  EyeOff,
   Search,
 } from 'lucide-react';
 import type { GstClientRecord } from '../types/ledger.ts';
@@ -22,6 +20,7 @@ import {
 } from '../utils/ledgerUtils.ts';
 import { computeGstClientSummaries } from '../utils/summaryUtils.ts';
 import { LimeSelect } from './LimeSelect.tsx';
+import { PortalPasswordCell } from './PortalPasswordCell.tsx';
 
 interface GstSummaryProps {
   clients: GstClientRecord[];
@@ -152,10 +151,6 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
-  const [revealedPasswords, setRevealedPasswords] = useState<
-    Record<string, boolean>
-  >({});
-
   const companiesById = useMemo(() => {
     const map = new Map<string, GstClientRecord>();
     for (const c of clients) map.set(c.id, c);
@@ -168,7 +163,7 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
       const filed = sortGstMonths(Object.keys(company?.filings || {}));
       return {
         ...r,
-        password: company?.password || '',
+        hasPortalPassword: !!company?.hasPortalPassword,
         firstMonth: filed[0] || '—',
         lastMonth: filed[filed.length - 1] || '—',
         filedCurrent: currentMonth
@@ -370,8 +365,6 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
               pageRows.map((row) => {
                 const open = openIds.has(row.id);
                 const company = companiesById.get(row.id);
-                const password = row.password || '';
-                const passwordShown = !!revealedPasswords[row.id];
                 const filingLabel =
                   row.monthsFiled > 0
                     ? `${row.monthsFiled} Month${
@@ -406,41 +399,15 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
                           ) : null}
                         </div>
                       </td>
-                      <td className="px-3 py-3.5 whitespace-nowrap">
-                        <div
-                          className="flex items-center gap-1"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <span className="font-mono text-[var(--ink)] tracking-wider">
-                            {password
-                              ? passwordShown
-                                ? password
-                                : '••••••••'
-                              : '—'}
-                          </span>
-                          {password ? (
-                            <>
-                              <button
-                                type="button"
-                                title={passwordShown ? 'Hide' : 'Show'}
-                                onClick={() =>
-                                  setRevealedPasswords((prev) => ({
-                                    ...prev,
-                                    [row.id]: !prev[row.id],
-                                  }))
-                                }
-                                className="inline-flex items-center justify-center w-6 h-6 rounded-md text-[var(--muted)] hover:bg-[var(--frost-100)] hover:text-[var(--ink)]"
-                              >
-                                {passwordShown ? (
-                                  <EyeOff className="w-3.5 h-3.5" />
-                                ) : (
-                                  <Eye className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                              <CopyButton value={password} />
-                            </>
-                          ) : null}
-                        </div>
+                      <td
+                        className="px-3 py-3.5 whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <PortalPasswordCell
+                          kind="gst"
+                          id={row.id}
+                          hasPassword={!!row.hasPortalPassword}
+                        />
                       </td>
                       <td className="px-3 py-3.5 whitespace-nowrap">
                         <div className="flex items-center gap-1">

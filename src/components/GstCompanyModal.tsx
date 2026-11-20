@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
 import { Eye, EyeOff, X } from 'lucide-react';
 import type { GstClientRecord, GstMonthlyFiling } from '../types/ledger.ts';
 import {
   computeGstFilingTotal,
   normalizeGstMonthLabel,
 } from '../utils/ledgerUtils.ts';
+import { FIELD_LIMITS, validateOptionalPhone } from '../utils/fieldValidation.ts';
+import { fadeScale, overlayFade } from '../motion/presets.ts';
 
 interface GstCompanyModalProps {
   isOpen: boolean;
@@ -57,7 +60,7 @@ export function GstCompanyModal({
     if (editingCompany) {
       setCompanyName(editingCompany.companyName);
       setUserId(editingCompany.userId);
-      setPassword(editingCompany.password);
+      setPassword('');
       setPhone(editingCompany.phone || '');
       setReferenceNumber(editingCompany.referenceNumber || '');
       setRemark(editingCompany.remark || '');
@@ -89,12 +92,33 @@ export function GstCompanyModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanCompany = companyName.trim();
-    const cleanUserId = userId.trim();
+    const cleanCompany = companyName.trim().slice(0, FIELD_LIMITS.companyName);
+    const cleanUserId = userId.trim().slice(0, FIELD_LIMITS.userId);
     const cleanPassword = password.trim();
 
-    if (!cleanCompany || !cleanUserId || !cleanPassword) {
-      setError('Company Name, User ID, and Password are mandatory.');
+    const keepExisting =
+      !!editingCompany?.hasPortalPassword && !cleanPassword;
+    if (!cleanCompany || !cleanUserId || (!cleanPassword && !keepExisting)) {
+      setError(
+        editingCompany?.hasPortalPassword
+          ? 'Company Name and User ID are mandatory. Leave password blank to keep the stored portal password.'
+          : 'Company Name, User ID, and Password are mandatory.'
+      );
+      return;
+    }
+    if (companyName.trim().length > FIELD_LIMITS.companyName) {
+      setError(
+        `Company Name must be at most ${FIELD_LIMITS.companyName} characters.`
+      );
+      return;
+    }
+    const phoneCheck = validateOptionalPhone(phone);
+    if (!phoneCheck.ok) {
+      setError(phoneCheck.error);
+      return;
+    }
+    if (remark.trim().length > FIELD_LIMITS.remark) {
+      setError(`Remark must be at most ${FIELD_LIMITS.remark} characters.`);
       return;
     }
 
@@ -137,13 +161,21 @@ export function GstCompanyModal({
   };
 
   return (
-    <div
+    <motion.div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--navy-900)]/50 backdrop-blur-[1px] p-4 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-labelledby="gst-company-modal-title"
+      variants={overlayFade}
+      initial="hidden"
+      animate="show"
     >
-      <div className="bg-[var(--card)] border border-[var(--line)] rounded-2xl w-full max-w-lg shadow-xl overflow-hidden my-auto">
+      <motion.div
+        variants={fadeScale}
+        initial="hidden"
+        animate="show"
+        className="bg-[var(--card)] border border-[var(--line)] rounded-2xl w-full max-w-lg shadow-xl overflow-hidden my-auto"
+      >
         <div className="px-6 py-4 bg-[var(--navy-900)] text-white flex items-center justify-between">
           <h2 id="gst-company-modal-title" className="font-display text-base font-semibold">
             {editingCompany ? 'Edit GST Company' : 'Add GST Company'}
@@ -175,6 +207,7 @@ export function GstCompanyModal({
                 required
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
+                maxLength={FIELD_LIMITS.companyName}
                 placeholder="Company Name"
                 className="w-full px-3 py-2 text-sm border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
               />
@@ -196,15 +229,27 @@ export function GstCompanyModal({
 
             <div>
               <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                Password <span className="text-[var(--danger)]">*</span>
+                Password{' '}
+                {editingCompany?.hasPortalPassword ? (
+                  <span className="text-[var(--muted)] font-normal">
+                    (leave blank to keep stored)
+                  </span>
+                ) : (
+                  <span className="text-[var(--danger)]">*</span>
+                )}
               </label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  required
+                  required={!editingCompany?.hasPortalPassword}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
+                  placeholder={
+                    editingCompany?.hasPortalPassword
+                      ? 'Leave blank to keep stored password'
+                      : 'Password'
+                  }
+                  autoComplete="new-password"
                   className="w-full px-3 py-2 pr-9 text-sm font-mono border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
                 />
                 <button
@@ -376,7 +421,7 @@ export function GstCompanyModal({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

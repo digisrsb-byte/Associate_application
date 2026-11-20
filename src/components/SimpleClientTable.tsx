@@ -5,8 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Eye,
-  EyeOff,
   LayoutGrid,
   Plus,
   RotateCcw,
@@ -23,6 +21,7 @@ import {
   normalizeAssessmentYearLabel,
   sortAssessmentYears,
 } from '../utils/ledgerUtils.ts';
+import { PortalPasswordCell } from './PortalPasswordCell.tsx';
 import { CompanyRowMenu } from './CompanyRowMenu.tsx';
 import { LimeSelect } from './LimeSelect.tsx';
 
@@ -79,7 +78,6 @@ export function SimpleClientTable({
   onAddClientClick,
 }: SimpleClientTableProps) {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
-  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [showAllYears, setShowAllYears] = useState(false);
   const [yearMenuOpen, setYearMenuOpen] = useState(false);
@@ -454,7 +452,6 @@ export function SimpleClientTable({
           <tbody className="divide-y divide-[var(--line)]">
             {clients.map((client) => {
               const isExpanded = Boolean(expandedIds[client.id]);
-              const isRevealed = Boolean(revealedPasswords[client.id]);
               const totals = computeClientTotals(client);
               const allClientYears = sortAssessmentYears(Object.keys(client.filings || {}));
               const clientYears =
@@ -473,7 +470,7 @@ export function SimpleClientTable({
 
               return (
                 <Fragment key={client.id}>
-                  <tr className="group hover:bg-[var(--frost-100)] transition-colors">
+                  <tr className="group ledger-row-motion hover:bg-[var(--frost-100)]">
                     <td className="pl-2.5 pr-1 py-2.5 text-center">
                       <button
                         type="button"
@@ -518,40 +515,11 @@ export function SimpleClientTable({
                     </td>
 
                     <td className="px-2 py-2.5 whitespace-nowrap">
-                      <div className="inline-flex items-center gap-0.5 font-mono text-[11px] text-[var(--ink)]">
-                        <span className="max-w-[82px] truncate">
-                          {isRevealed ? client.password : '••••••••'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setRevealedPasswords((p) => ({
-                              ...p,
-                              [client.id]: !p[client.id],
-                            }))
-                          }
-                          className="p-0.5 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
-                          title={isRevealed ? 'Hide password' : 'Show password'}
-                        >
-                          {isRevealed ? (
-                            <EyeOff className="w-3 h-3" />
-                          ) : (
-                            <Eye className="w-3 h-3" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => copyValue(`pwd-${client.id}`, client.password)}
-                          className="p-0.5 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
-                          title="Copy password"
-                        >
-                          {copiedKey === `pwd-${client.id}` ? (
-                            <Check className="w-3 h-3 text-[var(--success)]" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </button>
-                      </div>
+                      <PortalPasswordCell
+                        kind="it"
+                        id={client.id}
+                        hasPassword={!!client.hasPortalPassword}
+                      />
                     </td>
 
                     <td className="px-2 py-2.5 font-mono text-[11px] text-[var(--muted)] tabular-nums whitespace-nowrap">

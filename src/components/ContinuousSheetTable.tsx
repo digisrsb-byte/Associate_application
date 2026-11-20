@@ -6,8 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Eye,
-  EyeOff,
   LayoutGrid,
   Plus,
   RotateCcw,
@@ -21,6 +19,7 @@ import {
   formatPlainNumber,
 } from '../utils/ledgerUtils.ts';
 import { CompanyRowMenu } from './CompanyRowMenu.tsx';
+import { PortalPasswordCell } from './PortalPasswordCell.tsx';
 
 interface ContinuousSheetTableProps {
   clients: ClientRecord[];
@@ -81,7 +80,6 @@ export function ContinuousSheetTable({
   suggestedNextYear,
   onAddClientClick,
 }: ContinuousSheetTableProps) {
-  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [addingYear, setAddingYear] = useState(false);
   const [newYearInput, setNewYearInput] = useState(suggestedNextYear);
@@ -490,7 +488,6 @@ export function ContinuousSheetTable({
           <tbody className="divide-y divide-[var(--line)]">
             {clients.map((client) => {
               const totals = computeClientTotals(client);
-              const isRevealed = Boolean(revealedPasswords[client.id]);
 
               return (
                 <tr key={client.id} className="group hover:bg-[var(--frost-100)] align-top">
@@ -517,36 +514,11 @@ export function ContinuousSheetTable({
                   </td>
 
                   <td className="px-3 py-3 border-r border-[var(--line)] whitespace-nowrap">
-                    <div className="inline-flex items-center gap-0.5 font-mono text-[var(--ink)]">
-                      <span className="min-w-[68px]">
-                        {isRevealed ? client.password : '••••••••'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setRevealedPasswords((p) => ({
-                            ...p,
-                            [client.id]: !p[client.id],
-                          }))
-                        }
-                        className={`p-1 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center ${focusRing}`}
-                        title={isRevealed ? 'Hide' : 'Show'}
-                      >
-                        {isRevealed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => copyValue(`pwd-${client.id}`, client.password)}
-                        className={`p-1 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center ${focusRing}`}
-                        title="Copy Password"
-                      >
-                        {copiedKey === `pwd-${client.id}` ? (
-                          <Check className="w-3 h-3 text-[var(--success)]" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                      </button>
-                    </div>
+                    <PortalPasswordCell
+                      kind="it"
+                      id={client.id}
+                      hasPassword={!!client.hasPortalPassword}
+                    />
                   </td>
 
                   <td className="px-3 py-3 font-mono text-[var(--muted)] border-r border-[var(--line)] whitespace-nowrap">

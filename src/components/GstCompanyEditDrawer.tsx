@@ -54,7 +54,7 @@ export function GstCompanyEditDrawer({
     setShowPassword(false);
     setCompanyName(company.companyName);
     setUserId(company.userId);
-    setPassword(company.password);
+    setPassword('');
     setPhone(company.phone || '');
     setReferenceNumber(company.referenceNumber || '');
     setRemark(company.remark || '');
@@ -87,8 +87,13 @@ export function GstCompanyEditDrawer({
     const cleanCompany = companyName.trim();
     const cleanUserId = userId.trim();
     const cleanPassword = password.trim();
-    if (!cleanCompany || !cleanUserId || !cleanPassword) {
-      setError('Company Name, User ID, and Password are mandatory.');
+    const keepExisting = !!company.hasPortalPassword && !cleanPassword;
+    if (!cleanCompany || !cleanUserId || (!cleanPassword && !keepExisting)) {
+      setError(
+        company.hasPortalPassword
+          ? 'Company Name and User ID are mandatory. Leave password blank to keep the stored portal password.'
+          : 'Company Name, User ID, and Password are mandatory.'
+      );
       return;
     }
 
@@ -189,15 +194,28 @@ export function GstCompanyEditDrawer({
               </div>
               <div>
                 <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                  Password *
+                  Password{' '}
+                  {company.hasPortalPassword ? (
+                    <span className="text-[var(--muted)] font-normal">
+                      (leave blank to keep stored)
+                    </span>
+                  ) : (
+                    '*'
+                  )}
                 </label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    placeholder={
+                      company.hasPortalPassword
+                        ? 'Leave blank to keep stored password'
+                        : 'Password'
+                    }
+                    autoComplete="new-password"
                     className={`w-full px-3 py-2 pr-10 text-sm font-mono border border-[var(--line)] rounded-xl bg-[var(--card)] focus:outline-none focus:border-[var(--blue-500)] ${focusRing}`}
-                    required
+                    required={!company.hasPortalPassword}
                   />
                   <button
                     type="button"

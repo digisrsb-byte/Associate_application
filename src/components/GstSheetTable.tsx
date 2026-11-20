@@ -6,8 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Eye,
-  EyeOff,
   LayoutGrid,
   Plus,
   RotateCcw,
@@ -21,6 +19,7 @@ import {
   sortGstMonths,
 } from '../utils/ledgerUtils.ts';
 import { CompanyRowMenu } from './CompanyRowMenu.tsx';
+import { PortalPasswordCell } from './PortalPasswordCell.tsx';
 
 interface GstSheetTableProps {
   clients: GstClientRecord[];
@@ -95,7 +94,6 @@ export function GstSheetTable({
   suggestedNextMonth,
   onAddCompanyClick,
 }: GstSheetTableProps) {
-  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [addingMonth, setAddingMonth] = useState(false);
   const [newMonthInput, setNewMonthInput] = useState(suggestedNextMonth);
@@ -498,7 +496,6 @@ export function GstSheetTable({
           <tbody className="divide-y divide-[var(--line)]">
             {clients.map((company) => {
               const totals = computeGstClientTotals(company);
-              const isRevealed = Boolean(revealedPasswords[company.id]);
 
               return (
                 <tr key={company.id} className="group hover:bg-[var(--frost-100)] align-top">
@@ -525,36 +522,11 @@ export function GstSheetTable({
                   </td>
 
                   <td className="px-3 py-3 border-r border-[var(--line)] whitespace-nowrap">
-                    <div className="inline-flex items-center gap-0.5 font-mono text-[var(--ink)]">
-                      <span className="min-w-[68px]">
-                        {isRevealed ? company.password : '••••••••'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setRevealedPasswords((p) => ({
-                            ...p,
-                            [company.id]: !p[company.id],
-                          }))
-                        }
-                        className={`p-1 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center ${focusRing}`}
-                        title={isRevealed ? 'Hide' : 'Show'}
-                      >
-                        {isRevealed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => copyValue(`gpwd-${company.id}`, company.password)}
-                        className={`p-1 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center ${focusRing}`}
-                        title="Copy Password"
-                      >
-                        {copiedKey === `gpwd-${company.id}` ? (
-                          <Check className="w-3 h-3 text-[var(--success)]" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                      </button>
-                    </div>
+                    <PortalPasswordCell
+                      kind="gst"
+                      id={company.id}
+                      hasPassword={!!company.hasPortalPassword}
+                    />
                   </td>
 
                   <td className="px-3 py-3 font-mono text-[var(--muted)] border-r border-[var(--line)] whitespace-nowrap">
