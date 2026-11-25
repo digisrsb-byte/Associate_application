@@ -5,22 +5,27 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Search,
-} from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import type { GstClientRecord } from '../types/ledger.ts';
 import {
   computeGstFilingTotal,
-  formatPlainNumber,
   sortGstMonths,
 } from '../utils/ledgerUtils.ts';
 import { computeGstClientSummaries } from '../utils/summaryUtils.ts';
+import {
+  GST_OUTSTANDING_UNALLOCATED_EXPLAIN,
+  GST_UNALLOCATED_LABEL,
+} from '../utils/gstCopy.ts';
 import { LimeSelect } from './LimeSelect.tsx';
 import { PortalPasswordCell } from './PortalPasswordCell.tsx';
+import {
+  PaginationBar,
+  SummaryCard,
+  SummaryToolbar,
+  moneyPlain,
+} from './SummaryShared.tsx';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
+import { GstSummaryMobileCards } from './mobile/SummaryMobileCards.tsx';
 
 interface GstSummaryProps {
   clients: GstClientRecord[];
@@ -31,10 +36,6 @@ type GstFilter = 'all' | 'dues' | 'paid' | 'not-filed';
 type GstSort = 'outstanding' | 'billed' | 'name' | 'latest';
 
 const COL_COUNT = 10;
-
-function moneyPlain(n: number): string {
-  return `₹${formatPlainNumber(Math.max(0, Math.round(n)))}`;
-}
 
 function shortMonth(m: string): string {
   const parts = m.trim().split(/\s+/);
@@ -103,8 +104,8 @@ function MonthHistory({ company }: { company: GstClientRecord }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--card)]">
-      <table className="w-full text-[12px] border-collapse">
+    <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-[var(--line)] bg-[var(--card)]">
+      <table className="w-full min-w-[420px] text-[12px] border-collapse">
         <thead>
           <tr className="bg-[var(--navy-900)] text-white">
             <th className="px-3 py-2 text-left font-semibold">Month</th>
@@ -141,6 +142,7 @@ function MonthHistory({ company }: { company: GstClientRecord }) {
 }
 
 export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
+  const isCompact = useIsCompactLayout();
   const sortedMonths = useMemo(() => sortGstMonths(months), [months]);
   const currentMonth = sortedMonths[sortedMonths.length - 1] || '';
   const currentLabel = currentMonth ? shortMonth(currentMonth) : 'current';
@@ -238,9 +240,6 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
     }
   };
 
-  const from = rows.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const to = Math.min(safePage * pageSize, rows.length);
-
   const filterOptions: { id: GstFilter; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'dues', label: 'Dues pending' },
@@ -249,48 +248,19 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
   ];
 
   return (
-    <section className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
-      <div className="px-5 pt-5 pb-3">
-        <h2 className="text-[17px] font-semibold text-[var(--ink)]">
-          Company Summary
-        </h2>
-        <p className="text-[12px] text-[var(--muted)] mt-0.5">
-          Expand a company to see month-wise fees, interest, tax, and total.
-        </p>
-      </div>
-
-      <div className="px-5 pb-4 space-y-3">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--sidebar-text)]" />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search company, user ID, phone, ref…"
-            className="w-full rounded-xl border border-[var(--line)] bg-[var(--frost-100)] pl-9 pr-3 py-2.5 text-[12px] text-[var(--ink)] placeholder:text-[var(--sidebar-text)] outline-none focus:border-[var(--blue-500)] focus:bg-[var(--card)]"
-          />
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {filterOptions.map((opt) => {
-                const selected = opt.id === filter;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setFilter(opt.id)}
-                    className={
-                      selected
-                        ? 'px-3 py-1.5 rounded-full text-[11px] font-semibold bg-[var(--navy-900)] text-white'
-                        : 'px-3 py-1.5 rounded-full text-[11px] font-semibold bg-[var(--card)] text-[var(--ink)] border border-[var(--line)] hover:border-[var(--navy-900)]'
-                    }
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
+    <SummaryCard
+      title="Company Summary"
+      subtitle="Expand a company to see month-wise fees, interest, tax, and total."
+      toolbar={
+        <SummaryToolbar
+          search={search}
+          onSearch={setSearch}
+          searchPlaceholder="Search company, user ID, phone, ref…"
+          filterOptions={filterOptions}
+          filter={filter}
+          onFilter={setFilter}
+          countLabel={`${rows.length} companies`}
+          sortControl={
             <label className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
               <span className="font-medium">Sort</span>
               <LimeSelect
@@ -307,13 +277,35 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
                 ]}
               />
             </label>
-          </div>
-          <p className="text-[12px] font-semibold text-[var(--ink)]">
-            {rows.length} companies
-          </p>
-        </div>
-      </div>
-
+          }
+        />
+      }
+      pagination={
+        <PaginationBar
+          page={safePage}
+          pageSize={pageSize}
+          total={rows.length}
+          entityPlural="companies"
+          onPage={setPage}
+          onPageSize={setPageSize}
+        />
+      }
+    >
+      {isCompact ? (
+        <GstSummaryMobileCards
+          rows={pageRows}
+          openIds={openIds}
+          onToggle={(id) => setOpenIds((prev) => toggleId(prev, id))}
+          renderExpanded={(row) => {
+            const company = companiesById.get(row.id);
+            return company ? (
+              <MonthHistory company={company} />
+            ) : (
+              <p className="text-xs text-[var(--muted)]">Details unavailable.</p>
+            );
+          }}
+        />
+      ) : (
       <div className="overflow-x-auto ledger-scroll">
         <table className="w-full border-collapse text-left text-[12px] min-w-[1100px]">
           <thead>
@@ -429,7 +421,13 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
                         {filingLabel}
                       </td>
                       <td className="px-3 py-3.5 text-right font-mono tabular-nums text-[var(--success)]">
-                        {moneyPlain(row.totalReceived)}
+                        <div>{moneyPlain(row.totalReceived)}</div>
+                        {row.unallocatedReceived > 0 && (
+                          <div className="text-[10px] font-medium text-[var(--muted)]">
+                            {GST_UNALLOCATED_LABEL}{' '}
+                            {moneyPlain(row.unallocatedReceived)}
+                          </div>
+                        )}
                       </td>
                       <td
                         className={`px-3 py-3.5 text-right font-mono tabular-nums font-semibold ${
@@ -438,7 +436,15 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
                             : 'text-[var(--ink)]'
                         }`}
                       >
-                        {moneyPlain(row.outstanding)}
+                        <div>{moneyPlain(row.outstanding)}</div>
+                        {row.unallocatedReceived > 0 && (
+                          <div
+                            className="text-[10px] font-medium text-[var(--muted)]"
+                            title={GST_OUTSTANDING_UNALLOCATED_EXPLAIN}
+                          >
+                            Incl. unallocated in company total
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-3.5 text-center text-[var(--muted)]">
                         {open ? (
@@ -485,49 +491,7 @@ export function GstClientSummaryView({ clients, months }: GstSummaryProps) {
           ) : null}
         </table>
       </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-[var(--frost-100)] border-t border-[var(--line)] text-xs text-[var(--muted)]">
-        <p>
-          Showing{' '}
-          <span className="font-semibold text-[var(--ink)]">
-            {from}–{to}
-          </span>{' '}
-          of <span className="font-semibold text-[var(--ink)]">{rows.length}</span>{' '}
-          companies
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2">
-            <span>Per page</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              className="rounded-lg border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-xs font-medium text-[var(--ink)] outline-none focus:border-[var(--blue-500)]"
-            >
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
-          </label>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              disabled={safePage <= 1}
-              onClick={() => setPage(safePage - 1)}
-              className="px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--card)] text-xs font-semibold text-[var(--ink)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-[var(--navy-900)]"
-            >
-              Prev
-            </button>
-            <button
-              type="button"
-              disabled={safePage >= totalPages}
-              onClick={() => setPage(safePage + 1)}
-              className="px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--card)] text-xs font-semibold text-[var(--ink)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-[var(--navy-900)]"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
+      )}
+    </SummaryCard>
   );
 }

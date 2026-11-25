@@ -76,10 +76,11 @@ export function PortalPasswordCell({
           void toggleReveal();
         }}
         disabled={busy}
-        className="p-0.5 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer disabled:opacity-50"
+        className="inline-flex min-h-11 min-w-11 lg:min-h-8 lg:min-w-8 items-center justify-center rounded-lg text-[var(--muted)] hover:text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer disabled:opacity-50"
         title={plain ? 'Hide password' : 'Show password'}
+        aria-label={plain ? 'Hide password' : 'Show password'}
       >
-        {plain ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+        {plain ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
       </button>
       <button
         type="button"
@@ -88,13 +89,14 @@ export function PortalPasswordCell({
           void copy();
         }}
         disabled={busy}
-        className="p-0.5 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer disabled:opacity-50"
+        className="inline-flex min-h-11 min-w-11 lg:min-h-8 lg:min-w-8 items-center justify-center rounded-lg text-[var(--muted)] hover:text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer disabled:opacity-50"
         title="Copy password"
+        aria-label="Copy password"
       >
         {copied ? (
-          <Check className="w-3 h-3 text-[var(--success)]" />
+          <Check className="w-3.5 h-3.5 text-[var(--success)]" />
         ) : (
-          <Copy className="w-3 h-3" />
+          <Copy className="w-3.5 h-3.5" />
         )}
       </button>
     </div>

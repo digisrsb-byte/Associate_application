@@ -6,6 +6,12 @@
 /** Indian PAN structure (structure only — not ITD verification). */
 export const PAN_REGEX = /^[A-Z]{3}[ABCFGHLJPT][A-Z][0-9]{4}[A-Z]$/;
 
+/**
+ * Syntactically valid PAN-shaped example for placeholders and error hints.
+ * Demo / format-example data only — not a real or government-verified PAN.
+ */
+export const PAN_FORMAT_EXAMPLE = 'ABCPK1234D';
+
 export const FIELD_LIMITS = {
   name: 120,
   companyName: 120,
@@ -52,14 +58,13 @@ export function validatePanValue(
   if (pan.length !== FIELD_LIMITS.pan) {
     return {
       ok: false,
-      error: `PAN must be exactly ${FIELD_LIMITS.pan} characters (e.g. ABCPE1234F).`,
+      error: `PAN must be exactly ${FIELD_LIMITS.pan} characters (e.g. ${PAN_FORMAT_EXAMPLE}). Format example only — not government-verified.`,
     };
   }
   if (!isValidPanFormat(pan)) {
     return {
       ok: false,
-      error:
-        'Invalid PAN format. Expected 5 letters (4th = entity type A/B/C/F/G/H/L/J/P/T), 4 digits, then 1 letter. This check does not verify the PAN with the Income Tax Department.',
+      error: `Invalid PAN format. Expected 5 letters (4th = entity type A/B/C/F/G/H/L/J/P/T), 4 digits, then 1 letter (e.g. ${PAN_FORMAT_EXAMPLE}). This check does not verify the PAN with the Income Tax Department.`,
     };
   }
   return { ok: true, pan };
@@ -136,6 +141,72 @@ export function validateOptionalPhone(
   return { ok: true, value };
 }
 
+/** Required phone: non-empty plus the same shape rules as optional phone. */
+export function validateRequiredPhone(
+  raw: unknown
+): { ok: true; value: string } | { ok: false; error: string } {
+  const value = String(raw ?? '').trim();
+  if (!value) {
+    return { ok: false, error: 'Phone is required.' };
+  }
+  return validateOptionalPhone(raw);
+}
+
+/** Canonical payment date format shared by FE date inputs and BE. */
+export const PAYMENT_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** True only for a real calendar date in YYYY-MM-DD. */
+export function isValidPaymentCalendarDate(raw: unknown): boolean {
+  const value = String(raw ?? '').trim();
+  const match = PAYMENT_DATE_PATTERN.exec(value);
+  if (!match) return false;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return (
+    dt.getUTCFullYear() === year &&
+    dt.getUTCMonth() === month - 1 &&
+    dt.getUTCDate() === day
+  );
+}
+
+export function validatePaymentDate(
+  raw: unknown
+): { ok: true; value: string } | { ok: false; error: string } {
+  const value = String(raw ?? '').trim();
+  if (!value) {
+    return { ok: false, error: 'Payment date is required.' };
+  }
+  if (!isValidPaymentCalendarDate(value)) {
+    return {
+      ok: false,
+      error: 'Payment date must be a valid calendar date (YYYY-MM-DD).',
+    };
+  }
+  return { ok: true, value };
+}
+
+/**
+ * Linear-time shape check equivalent to /^[^\s@]+@[^\s@]+\.[^\s@]+$/.
+ * Intentionally not HTML5/RFC — preserves prior accept/reject set (Unicode, +, dots).
+ */
+function matchesOptionalEmailShape(value: string): boolean {
+  const at = value.indexOf('@');
+  if (at <= 0 || at !== value.lastIndexOf('@')) return false;
+
+  const local = value.slice(0, at);
+  const domain = value.slice(at + 1);
+  if (!local.length || !domain.length) return false;
+  if (/[\s@]/.test(local) || /[\s@]/.test(domain)) return false;
+
+  for (let i = 1; i < domain.length - 1; i++) {
+    if (domain[i] === '.') return true;
+  }
+  return false;
+}
+
 export function validateOptionalEmail(
   raw: unknown
 ): { ok: true; value: string } | { ok: false; error: string } {
@@ -149,8 +220,39 @@ export function validateOptionalEmail(
       error: `Email must be at most ${FIELD_LIMITS.email} characters.`,
     };
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+  if (!matchesOptionalEmailShape(value)) {
     return { ok: false, error: 'Enter a valid email address.' };
+  }
+  return { ok: true, value };
+}
+
+/** Indian GSTIN structure only — not government verification. */
+export const GSTIN_REGEX =
+  /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+export function normalizeGstinInput(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, FIELD_LIMITS.gstin);
+}
+
+export function isValidGstinFormat(gstin: string): boolean {
+  return GSTIN_REGEX.test(gstin);
+}
+
+export function validateOptionalGstin(
+  raw: unknown
+): { ok: true; value: string } | { ok: false; error: string } {
+  const value = normalizeGstinInput(String(raw ?? ''));
+  if (!value) return { ok: true, value: '' };
+  if (value.length !== FIELD_LIMITS.gstin || !isValidGstinFormat(value)) {
+    return {
+      ok: false,
+      error:
+        'Invalid GSTIN format (15 characters). Format check only — not government-verified.',
+    };
   }
   return { ok: true, value };
 }

@@ -1,7 +1,12 @@
 import type { ClientRecord, GstClientRecord } from '../types/ledger.ts';
 import {
   computeBalance,
+  computeGstClientTotals,
+  computeGstFilingOutstanding,
+  computeGstFilingReceived,
   computeGstFilingTotal,
+  getGstFilingCollectibleTotal,
+  getGstUnallocatedReceived,
   sortAssessmentYears,
   sortGstMonths,
 } from './ledgerUtils.ts';
@@ -296,8 +301,60 @@ export interface GstMonthSummaryResult {
   totalInterest: number;
   totalTax: number;
   totalBilled: number;
+  /** Payments on filings in `months` only (not company unallocated). */
   totalReceived: number;
+  /** Σ per-filing outstanding for filings in `months`. */
   totalOutstanding: number;
+  /** Company-level unallocated — not included in totalReceived. */
+  unallocatedReceived: number;
+}
+
+export interface GstFyDashboardTotals {
+  totalBilled: number;
+  /** Sum of computeGstFilingReceived for filings in `months` (filing month FY, not paymentDate). */
+  totalReceived: number;
+  /** Sum of computeGstFilingOutstanding — overpayment does not cross months. */
+  totalOutstanding: number;
+  totalEntries: number;
+  /** Company unallocated receipts; never folded into totalReceived. */
+  unallocatedReceived: number;
+}
+
+/**
+ * Option A GST FY / month-set dashboard totals.
+ * Received = payments (or legacy month scalar) on filings whose month ∈ `months`.
+ * Outstanding = Σ month outstanding for those filings.
+ * Unallocated is returned separately and is never assigned to an FY.
+ */
+export function computeGstFyDashboardTotals(
+  clients: GstClientRecord[],
+  months: string[]
+): GstFyDashboardTotals {
+  const monthSet = new Set(months);
+  let totalBilled = 0;
+  let totalReceived = 0;
+  let totalOutstanding = 0;
+  let totalEntries = 0;
+  let unallocatedReceived = 0;
+
+  for (const client of clients) {
+    unallocatedReceived += getGstUnallocatedReceived(client);
+    for (const [month, filing] of Object.entries(client.filings || {})) {
+      if (!monthSet.has(month)) continue;
+      totalEntries += 1;
+      totalBilled += getGstFilingCollectibleTotal(filing);
+      totalReceived += computeGstFilingReceived(filing);
+      totalOutstanding += computeGstFilingOutstanding(filing);
+    }
+  }
+
+  return {
+    totalBilled,
+    totalReceived,
+    totalOutstanding,
+    totalEntries,
+    unallocatedReceived,
+  };
 }
 
 export interface GstClientSummaryRow {
@@ -314,6 +371,8 @@ export interface GstClientSummaryRow {
   totalTax: number;
   totalBilled: number;
   totalReceived: number;
+  /** Company-level unallocated legacy receipts (not assigned to a month). */
+  unallocatedReceived: number;
   outstanding: number;
 }
 
@@ -375,25 +434,7 @@ export function computeGstMonthSummary(
     totalBilled += billedSum;
   }
 
-  let totalReceived = 0;
-  let totalOutstanding = 0;
-
-  for (const client of clients) {
-    let clientBilled = 0;
-    for (const f of Object.values(client.filings || {})) {
-      const fees = Math.max(0, Number(f.fees) || 0);
-      const interest = Math.max(0, Number(f.interest) || 0);
-      const tax = Math.max(0, Number(f.tax) || 0);
-      const total =
-        typeof f.total === 'number' && Number.isFinite(f.total)
-          ? Math.max(0, f.total)
-          : computeGstFilingTotal(fees, interest, tax);
-      clientBilled += total;
-    }
-    const recd = Math.max(0, Number(client.totalReceived) || 0);
-    totalReceived += recd;
-    totalOutstanding += Math.max(0, clientBilled - recd);
-  }
+  const scoped = computeGstFyDashboardTotals(clients, sortedMonths);
 
   return {
     rows,
@@ -403,8 +444,9 @@ export function computeGstMonthSummary(
     totalInterest,
     totalTax,
     totalBilled,
-    totalReceived,
-    totalOutstanding,
+    totalReceived: scoped.totalReceived,
+    totalOutstanding: scoped.totalOutstanding,
+    unallocatedReceived: scoped.unallocatedReceived,
   };
 }
 
@@ -444,8 +486,7 @@ export function computeGstClientSummaries(
       }
     }
 
-    const totalReceived = Math.max(0, Number(client.totalReceived) || 0);
-    const outstanding = Math.max(0, totalBilled - totalReceived);
+    const derived = computeGstClientTotals(client);
 
     return {
       id: client.id,
@@ -460,8 +501,9 @@ export function computeGstClientSummaries(
       totalInterest,
       totalTax,
       totalBilled,
-      totalReceived,
-      outstanding,
+      totalReceived: derived.totalReceived,
+      unallocatedReceived: derived.unallocatedReceived,
+      outstanding: derived.outstandingTotal,
     };
   });
 }

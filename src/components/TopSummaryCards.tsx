@@ -14,6 +14,10 @@ interface TopSummaryCardsProps {
   entitySingularLabel?: string;
   periodPluralLabel?: string;
   periodSingularLabel?: string;
+  /** Optional note under Total Received (e.g. GST FY scope / unallocated). */
+  totalReceivedNote?: string;
+  /** Optional scope label under Total Received title (e.g. selected FY). */
+  receivedScopeLabel?: string;
 }
 
 export function TopSummaryCards({
@@ -27,6 +31,8 @@ export function TopSummaryCards({
   entitySingularLabel = 'client',
   periodPluralLabel = 'Assessment Years',
   periodSingularLabel = 'Assessment Year',
+  totalReceivedNote,
+  receivedScopeLabel,
 }: TopSummaryCardsProps) {
   const collectionPct = totalBilled > 0 ? Math.min(100, (totalReceived / totalBilled) * 100) : 0;
   const outstandingPct = totalBilled > 0 ? Math.min(100, (outstandingTotal / totalBilled) * 100) : 0;
@@ -71,9 +77,19 @@ export function TopSummaryCards({
             <p className="text-xs font-semibold uppercase tracking-wide text-white/75">
               Total Received
             </p>
+            {receivedScopeLabel ? (
+              <p className="mt-0.5 text-[10px] font-mono font-semibold text-white/65">
+                {receivedScopeLabel}
+              </p>
+            ) : null}
             <p className="mt-1 font-mono text-xl sm:text-[22px] font-bold tracking-tight tabular-nums text-white">
               {formatCurrency(totalReceived)}
             </p>
+            {totalReceivedNote ? (
+              <p className="mt-1 text-[10px] leading-snug text-white/70 max-w-[14rem]">
+                {totalReceivedNote}
+              </p>
+            ) : null}
           </div>
           <motion.div
             className="p-2 rounded-lg bg-white/15 text-[var(--gold)] shrink-0"

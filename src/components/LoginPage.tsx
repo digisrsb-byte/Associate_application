@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles } from 'lucide-react';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
 
 interface LoginPageProps {
   onSuccess: (email: string) => void;
@@ -53,7 +54,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch('/api/auth/setup-status', {
           credentials: 'include',
@@ -68,7 +69,9 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
       } catch {
         // ignore — login form still usable if status fails
       }
-    })();
+    })().catch(() => {
+      // ignore — login form still usable if status fails
+    });
     return () => {
       cancelled = true;
     };
@@ -240,6 +243,341 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
           ? handleBootstrap
           : handleReset;
 
+  const isCompact = useIsCompactLayout();
+
+  const modeHeading =
+    mode === 'login'
+      ? 'Welcome back'
+      : mode === 'forgot'
+        ? 'Forgot password'
+        : mode === 'bootstrap'
+          ? 'First-time setup'
+          : 'Reset password';
+
+  const modeSupport =
+    mode === 'login'
+      ? 'Sign in to continue to your IT & GST workspace.'
+      : mode === 'forgot'
+        ? 'Enter your email. A reset token will be written to a local file on this machine (not emailed).'
+        : mode === 'bootstrap'
+          ? 'Create the administrator account. Use a strong password (12+ chars, upper, lower, number, special).'
+          : 'Paste the reset token from data/PASSWORD_RESET_TOKEN.txt, then set a new strong password.';
+
+  const fieldClass =
+    'w-full min-h-11 rounded-xl border border-[var(--line)] bg-[var(--frost-100)] px-3.5 py-2.5 text-[15px] text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--muted)]/70 focus:border-[var(--blue-500)] focus:bg-white';
+
+  const labelClass = 'block text-sm font-medium text-[var(--muted)] mb-1.5';
+
+  if (isCompact) {
+    return (
+      <div className="login-screen relative min-h-dvh w-full overflow-x-hidden overflow-y-auto bg-[var(--bg)] text-[var(--ink)]">
+        {/* Quiet brand wash — existing tokens only, no busy decoration */}
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          <div className="absolute inset-0 bg-[var(--bg)]" />
+          <div className="absolute inset-x-0 top-0 h-[42%] bg-gradient-to-b from-[var(--navy-900)] to-[var(--navy-900)]/0 opacity-[0.08]" />
+        </div>
+
+        <div className="relative z-10 flex min-h-dvh w-full items-center justify-center px-4 py-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:px-6">
+          <motion.div
+            key={mode}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className="w-full max-w-[400px]"
+          >
+            <form
+              onSubmit={onSubmit}
+              className="rounded-2xl border border-[var(--line)] bg-[var(--card)] px-5 py-7 shadow-[0_12px_40px_rgba(20,30,60,0.08)] sm:px-8 sm:py-8"
+            >
+              {/* 1–2. Logo + ASSOCIATE wordmark */}
+              <div className="flex flex-col items-center text-center">
+                <div className="h-16 w-16 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--frost-100)] shadow-sm">
+                  <img
+                    src="/srsb-logo.jpg"
+                    alt="SRSB Associate"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <p className="mt-3 font-display text-xl font-extrabold tracking-[0.18em] uppercase text-[var(--navy-900)]">
+                  Associate
+                </p>
+                <p className="mt-1 text-[11px] font-medium text-[var(--muted)] tracking-wide">
+                  SRSB · IT &amp; GST Filing Ledger
+                </p>
+              </div>
+
+              {/* 3–4. Heading + support */}
+              <div className="mt-6 text-center">
+                <h1 className="font-display text-[1.35rem] sm:text-2xl font-bold tracking-tight text-[var(--ink)]">
+                  {modeHeading}
+                </h1>
+                <p className="mt-1.5 text-sm text-[var(--muted)] leading-relaxed px-1">
+                  {modeSupport}
+                </p>
+              </div>
+
+              {/* 5–6. Fields */}
+              <div className="mt-6 space-y-3.5">
+                <label className="block">
+                  <span className={labelClass}>User Name</span>
+                  <motion.div
+                    animate={{
+                      boxShadow:
+                        focused === 'email'
+                          ? '0 0 0 3px color-mix(in srgb, var(--blue-500) 20%, transparent)'
+                          : '0 0 0 0 transparent',
+                    }}
+                    className="rounded-xl"
+                  >
+                    <input
+                      id="login-email"
+                      type="email"
+                      autoComplete="username"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      onFocus={() => setFocused('email')}
+                      onBlur={() => setFocused(null)}
+                      placeholder="admin@srsbassociate.com"
+                      className={fieldClass}
+                    />
+                  </motion.div>
+                </label>
+
+                {(mode === 'login' || mode === 'bootstrap') && (
+                  <label className="block">
+                    <span className={labelClass}>Password</span>
+                    <motion.div
+                      animate={{
+                        boxShadow:
+                          focused === 'password'
+                            ? '0 0 0 3px color-mix(in srgb, var(--blue-500) 20%, transparent)'
+                            : '0 0 0 0 transparent',
+                      }}
+                      className="relative rounded-xl"
+                    >
+                      <input
+                        id="login-password"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete={
+                          mode === 'bootstrap' ? 'new-password' : 'current-password'
+                        }
+                        required
+                        minLength={mode === 'bootstrap' ? 12 : undefined}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        onFocus={() => setFocused('password')}
+                        onBlur={() => setFocused(null)}
+                        placeholder={
+                          mode === 'bootstrap'
+                            ? '12+ chars, upper, lower, number, special'
+                            : 'Enter password'
+                        }
+                        className={`${fieldClass} pr-14`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-xs font-bold uppercase tracking-wide text-[var(--navy-900)] hover:bg-[var(--frost-100)] cursor-pointer"
+                      >
+                        {showPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </motion.div>
+                  </label>
+                )}
+
+                {mode === 'bootstrap' && (
+                  <label className="block">
+                    <span className={labelClass}>Confirm password</span>
+                    <input
+                      id="bootstrap-confirm"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      required
+                      minLength={12}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Re-enter password"
+                      className={fieldClass}
+                    />
+                  </label>
+                )}
+
+                {mode === 'reset' && (
+                  <>
+                    <label className="block">
+                      <span className={labelClass}>Reset token</span>
+                      <input
+                        id="reset-token"
+                        type="text"
+                        autoComplete="one-time-code"
+                        required
+                        value={resetToken}
+                        onChange={(e) => setResetToken(e.target.value)}
+                        onFocus={() => setFocused('token')}
+                        onBlur={() => setFocused(null)}
+                        placeholder="Paste token from data/PASSWORD_RESET_TOKEN.txt"
+                        className={`${fieldClass} font-mono text-sm`}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className={labelClass}>New password</span>
+                      <div className="relative">
+                        <input
+                          id="new-password"
+                          type={showNewPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          required
+                          minLength={12}
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="12+ chars, upper, lower, number, special"
+                          className={`${fieldClass} pr-14`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword((v) => !v)}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-xs font-bold uppercase tracking-wide text-[var(--navy-900)] hover:bg-[var(--frost-100)] cursor-pointer"
+                        >
+                          {showNewPassword ? 'Hide' : 'Show'}
+                        </button>
+                      </div>
+                    </label>
+
+                    <label className="block">
+                      <span className={labelClass}>Confirm new password</span>
+                      <input
+                        id="confirm-password"
+                        type={showNewPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        required
+                        minLength={12}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Re-enter new password"
+                        className={fieldClass}
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <AnimatePresence mode="wait">
+                {error && (
+                  <motion.div
+                    key={error}
+                    role="alert"
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className="mt-3.5 rounded-xl border border-red-200 bg-[var(--danger-15)] px-3 py-2.5 text-sm text-red-700"
+                  >
+                    {error}
+                  </motion.div>
+                )}
+                {success && (
+                  <motion.div
+                    key={success}
+                    role="status"
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className="mt-3.5 rounded-xl border border-emerald-200 bg-[var(--success-15)] px-3 py-2.5 text-sm text-emerald-800"
+                  >
+                    {success}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* 7. Sign In */}
+              <button
+                type="submit"
+                disabled={submitting}
+                className="mt-5 w-full min-h-11 rounded-xl bg-[var(--navy-900)] px-4 py-3 text-[15px] font-bold text-white shadow-sm hover:bg-[var(--navy-700)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
+              >
+                {mode === 'login'
+                  ? submitting
+                    ? 'Signing in…'
+                    : 'Sign In'
+                  : mode === 'forgot'
+                    ? submitting
+                      ? 'Sending…'
+                      : 'Send reset token'
+                    : mode === 'bootstrap'
+                      ? submitting
+                        ? 'Creating admin…'
+                        : 'Create administrator'
+                      : submitting
+                        ? 'Updating…'
+                        : 'Update password'}
+              </button>
+
+              {/* 8–9. Remember / Forgot / mode links */}
+              {mode === 'login' ? (
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <label className="inline-flex min-h-11 cursor-pointer select-none items-center gap-2.5 text-sm text-[var(--ink)]">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="h-4 w-4 cursor-pointer accent-[var(--navy-900)]"
+                    />
+                    Remember Me
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => switchMode('forgot')}
+                    className="inline-flex min-h-11 items-center justify-center text-sm font-semibold text-[var(--navy-900)] hover:underline underline-offset-2 cursor-pointer"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+              ) : mode === 'bootstrap' ? (
+                <p className="mt-4 text-center text-sm text-[var(--muted)]">
+                  This one-time setup creates the only administrator for this
+                  installation.
+                </p>
+              ) : (
+                <div className="mt-4 flex flex-col items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => switchMode('login')}
+                    className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--navy-900)] hover:underline underline-offset-2 cursor-pointer"
+                  >
+                    ← Back to sign in
+                  </button>
+                  {mode === 'forgot' && (
+                    <button
+                      type="button"
+                      onClick={() => switchMode('reset')}
+                      className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--navy-900)] hover:underline underline-offset-2 cursor-pointer"
+                    >
+                      I already have a token →
+                    </button>
+                  )}
+                  {mode === 'reset' && (
+                    <button
+                      type="button"
+                      onClick={() => switchMode('forgot')}
+                      className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--navy-900)] hover:underline underline-offset-2 cursor-pointer"
+                    >
+                      Request a new token
+                    </button>
+                  )}
+                </div>
+              )}
+            </form>
+
+            <p className="mt-5 text-center text-[11px] text-[var(--muted)]">
+              Authorized access only
+            </p>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="login-screen relative min-h-dvh w-full overflow-hidden bg-[var(--navy-900)] text-white">
       {/* Full-bleed animated backdrop */}
@@ -283,7 +621,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         />
       </div>
 
-      <div className="relative z-10 grid min-h-dvh lg:grid-cols-2">
+      <div className="relative z-10 grid min-h-dvh grid-cols-2">
         {/* Left — brand hero (full height) */}
         <section className="relative flex flex-col justify-between px-6 py-8 sm:px-10 sm:py-10 lg:px-14 lg:py-12">
           <motion.div
@@ -384,7 +722,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
           </div>
 
           <motion.p
-            className="hidden text-xs text-white/45 lg:block"
+            className="text-xs text-white/45"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.8 }}
@@ -394,8 +732,8 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
         </section>
 
         {/* Right — full-height form panel */}
-        <section className="relative flex items-end justify-center px-4 pb-6 pt-2 sm:px-8 sm:pb-10 lg:items-center lg:px-10 lg:py-12 xl:px-14">
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent lg:bg-gradient-to-l lg:from-black/20 lg:via-transparent" />
+        <section className="relative flex items-center justify-center px-4 pb-6 pt-2 sm:px-8 sm:pb-10 lg:px-10 lg:py-12 xl:px-14">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-l from-black/20 via-transparent to-transparent" />
 
           <motion.form
             key={mode}
@@ -417,7 +755,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
               </h2>
               <p className="mt-3 text-base text-[var(--muted)]">
                 {mode === 'login'
-                  ? 'Drop your email + password. Let’s go.'
+                  ? "Drop your email + password. Let's go."
                   : mode === 'forgot'
                     ? 'Enter your email. A reset token will be written to a local file on this machine (not emailed).'
                     : mode === 'bootstrap'

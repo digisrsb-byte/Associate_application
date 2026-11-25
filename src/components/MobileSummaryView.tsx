@@ -5,12 +5,11 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, Search } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import type { ClientRecord } from '../types/ledger.ts';
 import {
   computeBalance,
   formatDisplayDate,
-  formatPlainNumber,
   sortAssessmentYears,
 } from '../utils/ledgerUtils.ts';
 import {
@@ -18,6 +17,15 @@ import {
   computeMobileSummaries,
 } from '../utils/summaryUtils.ts';
 import { LimeSelect } from './LimeSelect.tsx';
+import {
+  PaginationBar,
+  SummaryCard,
+  SummaryShowMore,
+  SummaryToolbar,
+  moneyPlain,
+} from './SummaryShared.tsx';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
+import { MobileSummaryMobileCards } from './mobile/SummaryMobileCards.tsx';
 
 interface MobileSummaryViewProps {
   clients: ClientRecord[];
@@ -30,10 +38,6 @@ type YearStatus = 'paid' | 'part' | 'unpaid';
 
 const COL_COUNT = 12;
 const LINKED_PAGE_SIZE = 50;
-
-function moneyPlain(n: number): string {
-  return `₹${formatPlainNumber(Math.max(0, Math.round(n)))}`;
-}
 
 function ayShort(ay: string): string {
   return ay.replace(/^AY\s*/i, '');
@@ -174,7 +178,7 @@ function YearHistory({ client }: { client: ClientRecord }) {
   }
 
   return (
-    <div className="mt-2 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--card)]">
+    <div className="mt-2 max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-[var(--line)] bg-[var(--card)]">
       <table className="w-full text-[12px] border-collapse">
         <thead>
           <tr className="bg-[var(--navy-900)] text-white">
@@ -315,7 +319,7 @@ function LinkedClientsPanel({
         </p>
       ) : (
         <>
-          <div className="overflow-x-auto">
+          <div className="max-w-full overflow-x-auto overscroll-x-contain">
             <table className="w-full text-[12px] border-collapse">
               <thead>
                 <tr className="bg-[var(--navy-900)] text-white">
@@ -340,20 +344,10 @@ function LinkedClientsPanel({
               </tbody>
             </table>
           </div>
-          {remaining > 0 ? (
-            <div className="px-3 py-2 border-t border-[var(--line)]">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setVisible((v) => v + LINKED_PAGE_SIZE);
-                }}
-                className="text-[11px] font-semibold text-[var(--blue-500)] hover:underline"
-              >
-                Show more ({remaining} remaining)
-              </button>
-            </div>
-          ) : null}
+          <SummaryShowMore
+            remaining={remaining}
+            onShowMore={() => setVisible((v) => v + LINKED_PAGE_SIZE)}
+          />
         </>
       )}
     </div>
@@ -361,6 +355,7 @@ function LinkedClientsPanel({
 }
 
 export function MobileSummaryView({ clients, years }: MobileSummaryViewProps) {
+  const isCompact = useIsCompactLayout();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<MobileFilter>('all');
   const [sortMode, setSortMode] = useState<MobileSort>('outstanding');
@@ -442,9 +437,6 @@ export function MobileSummaryView({ clients, years }: MobileSummaryViewProps) {
     }
   };
 
-  const from = rows.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const to = Math.min(safePage * pageSize, rows.length);
-
   const filterOptions: { id: MobileFilter; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'dues', label: 'Dues pending' },
@@ -453,48 +445,19 @@ export function MobileSummaryView({ clients, years }: MobileSummaryViewProps) {
   ];
 
   return (
-    <section className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
-      <div className="px-5 pt-5 pb-3">
-        <h2 className="text-[17px] font-semibold text-[var(--ink)]">
-          Mobile Summary
-        </h2>
-        <p className="text-[12px] text-[var(--muted)] mt-0.5">
-          Expand a mobile to see linked clients and assessment-year details.
-        </p>
-      </div>
-
-      <div className="px-5 pb-4 space-y-3">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--sidebar-text)]" />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search mobile, name, PAN, note…"
-            className="w-full rounded-xl border border-[var(--line)] bg-[var(--frost-100)] pl-9 pr-3 py-2.5 text-[12px] text-[var(--ink)] placeholder:text-[var(--sidebar-text)] outline-none focus:border-[var(--blue-500)] focus:bg-[var(--card)]"
-          />
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {filterOptions.map((opt) => {
-                const selected = opt.id === filter;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setFilter(opt.id)}
-                    className={
-                      selected
-                        ? 'px-3 py-1.5 rounded-full text-[11px] font-semibold bg-[var(--navy-900)] text-white'
-                        : 'px-3 py-1.5 rounded-full text-[11px] font-semibold bg-[var(--card)] text-[var(--ink)] border border-[var(--line)] hover:border-[var(--navy-900)]'
-                    }
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
+    <SummaryCard
+      title="Mobile Summary"
+      subtitle="Expand a mobile to see linked clients and assessment-year details."
+      toolbar={
+        <SummaryToolbar
+          search={search}
+          onSearch={setSearch}
+          searchPlaceholder="Search mobile, name, PAN, note…"
+          filterOptions={filterOptions}
+          filter={filter}
+          onFilter={setFilter}
+          countLabel={`${rows.length} mobile numbers`}
+          sortControl={
             <label className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
               <span className="font-medium">Sort</span>
               <LimeSelect
@@ -511,13 +474,31 @@ export function MobileSummaryView({ clients, years }: MobileSummaryViewProps) {
                 ]}
               />
             </label>
-          </div>
-          <p className="text-[12px] font-semibold text-[var(--ink)]">
-            {rows.length} mobile numbers
-          </p>
-        </div>
-      </div>
-
+          }
+        />
+      }
+      pagination={
+        <PaginationBar
+          page={safePage}
+          pageSize={pageSize}
+          total={rows.length}
+          entityPlural="mobile numbers"
+          onPage={setPage}
+          onPageSize={setPageSize}
+        />
+      }
+    >
+      {isCompact ? (
+        <MobileSummaryMobileCards
+          rows={pageRows}
+          openIds={openIds}
+          onToggle={(key) => setOpenIds((prev) => toggleId(prev, key))}
+          renderExpanded={(row) => {
+            const linked = clientsByPhone.get(row.mobile) || [];
+            return <LinkedClientsPanel linked={linked} years={years} />;
+          }}
+        />
+      ) : (
       <div className="overflow-x-auto ledger-scroll">
         <table className="w-full border-collapse text-left text-[12px] min-w-[1200px]">
           <thead>
@@ -617,13 +598,7 @@ export function MobileSummaryView({ clients, years }: MobileSummaryViewProps) {
                         className="px-3 py-3.5 max-w-[260px] truncate"
                         title={namesFull || undefined}
                       >
-                        <span
-                          className={
-                            row.namesLinked.length > 2
-                              ? 'text-[var(--ink)]'
-                              : 'text-[var(--ink)]'
-                          }
-                        >
+                        <span className="text-[var(--ink)]">
                           {row.namesLinked.length <= 2 ? (
                             namesPreview
                           ) : (
@@ -723,49 +698,7 @@ export function MobileSummaryView({ clients, years }: MobileSummaryViewProps) {
           ) : null}
         </table>
       </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-[var(--frost-100)] border-t border-[var(--line)] text-xs text-[var(--muted)]">
-        <p>
-          Showing{' '}
-          <span className="font-semibold text-[var(--ink)]">
-            {from}–{to}
-          </span>{' '}
-          of <span className="font-semibold text-[var(--ink)]">{rows.length}</span>{' '}
-          mobile numbers
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2">
-            <span>Per page</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              className="rounded-lg border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-xs font-medium text-[var(--ink)] outline-none focus:border-[var(--blue-500)]"
-            >
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
-          </label>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              disabled={safePage <= 1}
-              onClick={() => setPage(safePage - 1)}
-              className="px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--card)] text-xs font-semibold text-[var(--ink)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-[var(--navy-900)]"
-            >
-              Prev
-            </button>
-            <button
-              type="button"
-              disabled={safePage >= totalPages}
-              onClick={() => setPage(safePage + 1)}
-              className="px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--card)] text-xs font-semibold text-[var(--ink)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-[var(--navy-900)]"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
+      )}
+    </SummaryCard>
   );
 }

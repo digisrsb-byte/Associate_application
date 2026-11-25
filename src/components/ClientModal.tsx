@@ -1,7 +1,4 @@
-import { useEffect, useState } from 'react';
-import { motion } from 'motion/react';
-import { Eye, EyeOff, X } from 'lucide-react';
-import { fadeScale, overlayFade } from '../motion/presets.ts';
+import { useEffect, useId, useState } from 'react';
 import type { ClientRecord, FilingRecord } from '../types/ledger.ts';
 import { PAYMENT_TYPES } from '../types/ledger.ts';
 import {
@@ -11,10 +8,21 @@ import {
 } from '../utils/ledgerUtils.ts';
 import {
   FIELD_LIMITS,
-  isValidPanFormat,
+  PAN_FORMAT_EXAMPLE,
   validateOptionalPhone,
+  validatePanValue,
 } from '../utils/fieldValidation.ts';
 import { LimeSelect } from './LimeSelect.tsx';
+import { LabeledField } from './shared/LabeledField.tsx';
+import { ModalFormFooter } from './shared/ModalFormFooter.tsx';
+import { MotionModalShell } from './shared/MotionModalShell.tsx';
+import { PasswordField } from './shared/PasswordField.tsx';
+import {
+  MODAL_MONO_INPUT_CLASS,
+  MODAL_PAN_INPUT_CLASS,
+  MODAL_REMARK_INPUT_CLASS,
+  MODAL_TEXT_INPUT_CLASS,
+} from './shared/formStyles.ts';
 
 interface ClientModalProps {
   isOpen: boolean;
@@ -40,6 +48,7 @@ export function ClientModal({
   onClose,
   onSave,
 }: ClientModalProps) {
+  const uid = useId();
   const [name, setName] = useState('');
   const [pan, setPan] = useState('');
   const [password, setPassword] = useState('');
@@ -98,13 +107,24 @@ export function ClientModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = name.trim().slice(0, FIELD_LIMITS.name);
-    const cleanPan = normalizePan(pan);
     const cleanPassword = password.trim();
     const keepExisting =
       !!editingClient?.hasPortalPassword && !cleanPassword;
     const panUnchanged =
       !!editingClient &&
-      cleanPan === normalizePan(editingClient.pan || '');
+      normalizePan(pan) === normalizePan(editingClient.pan || '');
+
+    let cleanPan: string;
+    if (panUnchanged) {
+      cleanPan = normalizePan(editingClient?.pan || '');
+    } else {
+      const panRes = validatePanValue(pan, { required: true });
+      if (!panRes.ok) {
+        setError(panRes.error);
+        return;
+      }
+      cleanPan = panRes.pan;
+    }
 
     if (!cleanName || !cleanPan || (!cleanPassword && !keepExisting)) {
       setError(
@@ -116,12 +136,6 @@ export function ClientModal({
     }
     if (name.trim().length > FIELD_LIMITS.name) {
       setError(`Name must be at most ${FIELD_LIMITS.name} characters.`);
-      return;
-    }
-    if (!panUnchanged && !isValidPanFormat(cleanPan)) {
-      setError(
-        'Invalid PAN format (e.g. ABCDE1234F). This does not verify the PAN with the Income Tax Department.'
-      );
       return;
     }
     const phoneCheck = validateOptionalPhone(phone);
@@ -174,35 +188,12 @@ export function ClientModal({
   };
 
   return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--navy-900)]/50 backdrop-blur-[1px] p-4 overflow-y-auto"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="client-modal-title"
-      variants={overlayFade}
-      initial="hidden"
-      animate="show"
+    <MotionModalShell
+      titleId="client-modal-title"
+      title={editingClient ? 'Edit Client' : 'Add Client'}
+      onClose={onClose}
+      panelClassName="max-w-xl"
     >
-      <motion.div
-        variants={fadeScale}
-        initial="hidden"
-        animate="show"
-        className="bg-[var(--card)] border border-[var(--line)] rounded-2xl w-full max-w-xl shadow-xl overflow-hidden my-auto"
-      >
-        <div className="px-6 py-4 bg-[var(--navy-900)] text-white flex items-center justify-between">
-          <h2 id="client-modal-title" className="font-display text-base font-semibold">
-            {editingClient ? 'Edit Client' : 'Add Client'}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-white/75 hover:text-white rounded-lg cursor-pointer"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
         <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[82vh] overflow-y-auto">
           {error && (
             <div className="px-3 py-2 text-xs font-medium text-red-800 bg-[var(--danger-15)] border border-red-200 rounded-lg">
@@ -211,115 +202,90 @@ export function ClientModal({
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                Name <span className="text-[var(--danger)]">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={FIELD_LIMITS.name}
-                placeholder="Client Name"
-                className="w-full px-3 py-2 text-sm border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
-              />
-            </div>
+            <LabeledField
+              id={`${uid}-name`}
+              label={
+                <>
+                  Name <span className="text-[var(--danger)]">*</span>
+                </>
+              }
+              type="text"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={FIELD_LIMITS.name}
+              placeholder="Client Name"
+              inputClassName={MODAL_TEXT_INPUT_CLASS}
+              wrapperClassName="sm:col-span-2"
+            />
 
-            <div>
-              <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                PAN <span className="text-[var(--danger)]">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                maxLength={FIELD_LIMITS.pan}
-                value={pan}
-                onChange={(e) => setPan(normalizePan(e.target.value))}
-                placeholder="ABCDE1234F"
-                className="w-full px-3 py-2 text-sm font-mono uppercase border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
-              />
-            </div>
+            <LabeledField
+              id={`${uid}-pan`}
+              label={
+                <>
+                  PAN <span className="text-[var(--danger)]">*</span>
+                </>
+              }
+              type="text"
+              required
+              maxLength={FIELD_LIMITS.pan}
+              value={pan}
+              onChange={(e) => setPan(normalizePan(e.target.value))}
+              placeholder={PAN_FORMAT_EXAMPLE}
+              title="Format example only — not a real or government-verified PAN"
+              inputClassName={MODAL_PAN_INPUT_CLASS}
+            />
 
-            <div>
-              <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                Password{' '}
-                {editingClient?.hasPortalPassword ? (
-                  <span className="text-[var(--muted)] font-normal">
-                    (leave blank to keep stored)
-                  </span>
-                ) : (
-                  <span className="text-[var(--danger)]">*</span>
-                )}
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required={!editingClient?.hasPortalPassword}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={
-                    editingClient?.hasPortalPassword
-                      ? 'Leave blank to keep stored password'
-                      : 'Password'
-                  }
-                  autoComplete="new-password"
-                  className="w-full px-3 py-2 pr-9 text-sm font-mono border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((p) => !p)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
+            <PasswordField
+              id={`${uid}-password`}
+              variant="modal"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              showPassword={showPassword}
+              onToggleShow={() => setShowPassword((p) => !p)}
+              keepStoredHint={!!editingClient?.hasPortalPassword}
+            />
 
-            <div>
-              <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                Phone Number
-              </label>
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Mobile Number"
-                className="w-full px-3 py-2 text-sm font-mono border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
-              />
-            </div>
+            <LabeledField
+              id={`${uid}-phone`}
+              label="Phone Number"
+              type="text"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Mobile Number"
+              inputClassName={MODAL_MONO_INPUT_CLASS}
+            />
 
-            <div>
-              <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                Reference No
-              </label>
-              <input
-                type="text"
-                value={referenceNumber}
-                onChange={(e) => setReferenceNumber(e.target.value)}
-                placeholder="Reference Number"
-                className="w-full px-3 py-2 text-sm font-mono border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
-              />
-            </div>
+            <LabeledField
+              id={`${uid}-ref`}
+              label="Reference No"
+              type="text"
+              value={referenceNumber}
+              onChange={(e) => setReferenceNumber(e.target.value)}
+              placeholder="Reference Number"
+              inputClassName={MODAL_MONO_INPUT_CLASS}
+            />
 
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                Remark
-              </label>
-              <input
-                type="text"
-                value={remark}
-                onChange={(e) => setRemark(e.target.value)}
-                placeholder="Optional remark"
-                className="w-full px-3 py-2 text-sm bg-[var(--card)] border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]"
-              />
-            </div>
+            <LabeledField
+              id={`${uid}-remark`}
+              label="Remark"
+              type="text"
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              placeholder="Optional remark"
+              inputClassName={MODAL_REMARK_INPUT_CLASS}
+              wrapperClassName="sm:col-span-2"
+            />
           </div>
 
           {!editingClient && (
             <div className="pt-4 border-t border-[var(--line)] space-y-3">
-              <label className="flex items-center gap-2 text-xs font-medium text-[var(--ink)] cursor-pointer select-none">
+              <label
+                htmlFor={`${uid}-add-filing`}
+                className="flex items-center gap-2 text-xs font-medium text-[var(--ink)] cursor-pointer select-none"
+              >
                 <input
+                  id={`${uid}-add-filing`}
                   type="checkbox"
                   checked={addFiling}
                   onChange={(e) => setAddFiling(e.target.checked)}
@@ -331,18 +297,22 @@ export function ClientModal({
               {addFiling && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-[var(--frost-100)] border border-[var(--line)] rounded-xl p-3.5">
                   <div>
-                    <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                    <label
+                      htmlFor={`${uid}-year`}
+                      className="block text-[11px] font-medium text-[var(--muted)] mb-1"
+                    >
                       Year
                     </label>
                     <input
+                      id={`${uid}-year`}
                       type="text"
-                      list="modal-years-list"
+                      list={`${uid}-years-list`}
                       value={assessmentYear}
                       onChange={(e) => setAssessmentYear(e.target.value)}
                       placeholder="AY 2026-27"
                       className="w-full px-2.5 py-1.5 text-xs font-mono bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]"
                     />
-                    <datalist id="modal-years-list">
+                    <datalist id={`${uid}-years-list`}>
                       {availableYears.map((y) => (
                         <option key={y} value={y} />
                       ))}
@@ -350,10 +320,14 @@ export function ClientModal({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                    <label
+                      htmlFor={`${uid}-filing-date`}
+                      className="block text-[11px] font-medium text-[var(--muted)] mb-1"
+                    >
                       Filing Date
                     </label>
                     <input
+                      id={`${uid}-filing-date`}
                       type="date"
                       value={filingDate}
                       onChange={(e) => setFilingDate(e.target.value)}
@@ -362,10 +336,14 @@ export function ClientModal({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                    <label
+                      htmlFor={`${uid}-payment-type`}
+                      className="block text-[11px] font-medium text-[var(--muted)] mb-1"
+                    >
                       Payment Type
                     </label>
                     <LimeSelect
+                      id={`${uid}-payment-type`}
                       value={paymentType}
                       options={PAYMENT_TYPES}
                       onChange={setPaymentType}
@@ -375,10 +353,14 @@ export function ClientModal({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                    <label
+                      htmlFor={`${uid}-fees`}
+                      className="block text-[11px] font-medium text-[var(--muted)] mb-1"
+                    >
                       Fees (₹)
                     </label>
                     <input
+                      id={`${uid}-fees`}
                       type="number"
                       min={0}
                       value={fees}
@@ -389,10 +371,14 @@ export function ClientModal({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                    <label
+                      htmlFor={`${uid}-received`}
+                      className="block text-[11px] font-medium text-[var(--muted)] mb-1"
+                    >
                       Received (₹)
                     </label>
                     <input
+                      id={`${uid}-received`}
                       type="number"
                       min={0}
                       value={received}
@@ -403,19 +389,26 @@ export function ClientModal({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                    <p className="block text-[11px] font-medium text-[var(--muted)] mb-1">
                       Balance Outstanding
-                    </label>
-                    <div className="px-2.5 py-1.5 text-xs font-mono font-semibold bg-[var(--frost-100)] border border-[var(--line)] rounded-lg text-[var(--ink)] tabular-nums">
+                    </p>
+                    <div
+                      className="px-2.5 py-1.5 text-xs font-mono font-semibold bg-[var(--frost-100)] border border-[var(--line)] rounded-lg text-[var(--ink)] tabular-nums"
+                      aria-live="polite"
+                    >
                       ₹{balance.toLocaleString('en-IN')}
                     </div>
                   </div>
 
                   <div className="col-span-2 sm:col-span-3">
-                    <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
+                    <label
+                      htmlFor={`${uid}-pay-date`}
+                      className="block text-[11px] font-medium text-[var(--muted)] mb-1"
+                    >
                       Payment Receive Date
                     </label>
                     <input
+                      id={`${uid}-pay-date`}
                       type="date"
                       value={paymentReceiveDate}
                       onChange={(e) => setPaymentReceiveDate(e.target.value)}
@@ -427,24 +420,8 @@ export function ClientModal({
             </div>
           )}
 
-          <div className="pt-4 border-t border-[var(--line)] flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-[var(--muted)] bg-[var(--card)] border border-[var(--line)] rounded-xl hover:bg-[var(--frost-100)] cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-5 py-2 text-sm font-bold text-white bg-[var(--navy-900)] hover:bg-[var(--navy-700)] rounded-xl cursor-pointer disabled:opacity-60"
-            >
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
+          <ModalFormFooter onCancel={onClose} saving={saving} />
         </form>
-      </motion.div>
-    </motion.div>
+    </MotionModalShell>
   );
 }

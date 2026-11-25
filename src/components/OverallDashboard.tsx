@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import type { ClientRecord, GstClientRecord } from '../types/ledger.ts';
 import {
   computeBalance,
+  computeGstClientTotals,
   formatCurrency,
 } from '../utils/ledgerUtils.ts';
 import {
@@ -10,6 +11,15 @@ import {
   computeYearSummary,
 } from '../utils/summaryUtils.ts';
 import { fadeUp, springSoft, staggerContainer } from '../motion/presets.ts';
+import {
+  buildBillingHoverTipLines,
+  buildGstHoverTipLines,
+  DashboardHoverTip,
+  shortAyLabel,
+  type HoverTipModel,
+} from './shared/DashboardHoverTip.tsx';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
+import { MobileDashboard } from './mobile/MobileDashboard.tsx';
 
 interface OverallDashboardProps {
   itClients: ClientRecord[];
@@ -27,11 +37,7 @@ function inr(n: number): string {
   return formatCurrency(Math.max(0, Math.round(n)));
 }
 
-function shortAy(ay: string): string {
-  const m = ay.match(/(\d{4})-(\d{2})/);
-  if (m) return `${m[1].slice(2)}-${m[2]}`;
-  return ay.replace(/^AY\s*/i, '');
-}
+const shortAy = shortAyLabel;
 
 function shortMonth(m: string): string {
   const parts = m.trim().split(/\s+/);
@@ -163,7 +169,7 @@ function compactInr(n: number): string {
   }
   if (v < 10_000_000) {
     const lakh = v / 100_000;
-    return `₹${lakh >= 10 ? lakh.toFixed(1) : lakh.toFixed(1)}L`.replace(
+    return `₹${lakh.toFixed(1)}L`.replace(
       /\.0L$/,
       'L'
     );
@@ -255,6 +261,7 @@ export function OverallDashboard({
   onOpenItAllData,
   onOpenGstAllData,
 }: OverallDashboardProps) {
+  const isCompact = useIsCompactLayout();
   const itSummary = useMemo(
     () => computeYearSummary(itClients, assessmentYears),
     [itClients, assessmentYears]
@@ -264,17 +271,33 @@ export function OverallDashboard({
     [gstClients, gstMonths]
   );
 
+  /** Company-wide GST (incl. unallocated) — overall dashboard stays all-time. */
+  const gstCompanyWide = useMemo(() => {
+    let totalReceived = 0;
+    let totalOutstanding = 0;
+    let totalBilled = 0;
+    let totalEntries = 0;
+    for (const c of gstClients) {
+      const t = computeGstClientTotals(c);
+      totalReceived += t.totalReceived;
+      totalOutstanding += t.outstandingTotal;
+      totalBilled += t.totalBilled;
+      totalEntries += Object.keys(c.filings || {}).length;
+    }
+    return { totalReceived, totalOutstanding, totalBilled, totalEntries };
+  }, [gstClients]);
+
   const totalReceived =
-    itSummary.totalReceived + gstSummary.totalReceived;
-  const totalBilled = itSummary.totalBilled + gstSummary.totalBilled;
+    itSummary.totalReceived + gstCompanyWide.totalReceived;
+  const totalBilled = itSummary.totalBilled + gstCompanyWide.totalBilled;
   const totalOutstanding =
-    itSummary.totalOutstanding + gstSummary.totalOutstanding;
+    itSummary.totalOutstanding + gstCompanyWide.totalOutstanding;
   const collectionPct =
     totalBilled > 0 ? Math.min(100, (totalReceived / totalBilled) * 100) : 0;
   const outstandingPct =
     totalBilled > 0 ? Math.min(100, (totalOutstanding / totalBilled) * 100) : 0;
   const accounts = itClients.length + gstClients.length;
-  const filings = itSummary.totalEntries + gstSummary.totalEntries;
+  const filings = itSummary.totalEntries + gstCompanyWide.totalEntries;
   const periods = assessmentYears.length + gstMonths.length;
 
   const kpi = useInViewOnce<HTMLElement>();
@@ -289,9 +312,7 @@ export function OverallDashboard({
   const [yearWindow, setYearWindow] = useState<'3' | '5' | 'all'>('5');
   const [hideEmpty, setHideEmpty] = useState(true);
   const [openYear, setOpenYear] = useState<string | null>(null);
-  const [tip, setTip] = useState<{ html: string; x: number; y: number } | null>(
-    null
-  );
+  const [tip, setTip] = useState<HoverTipModel | null>(null);
 
   const itRowsFiltered = useMemo(() => {
     let rows = [...itSummary.rows].reverse();
@@ -368,8 +389,11 @@ export function OverallDashboard({
   }, [gstClients]);
 
   const gstCollectionPct =
-    gstSummary.totalBilled > 0
-      ? Math.min(100, (gstSummary.totalReceived / gstSummary.totalBilled) * 100)
+    gstCompanyWide.totalBilled > 0
+      ? Math.min(
+          100,
+          (gstCompanyWide.totalReceived / gstCompanyWide.totalBilled) * 100
+        )
       : 0;
 
   const gstTrendRows = useMemo(() => {
@@ -442,13 +466,29 @@ export function OverallDashboard({
   const T = 12;
   const B = 26;
 
-  const showTip = (e: React.MouseEvent, html: string) => {
+  const showTip = (e: React.MouseEvent, lines: HoverTipModel['lines']) => {
     setTip({
-      html,
+      lines,
       x: Math.min(e.clientX + 14, window.innerWidth - 200),
       y: e.clientY - 70,
     });
   };
+
+  if (isCompact) {
+    return (
+      <MobileDashboard
+        itClients={itClients}
+        assessmentYears={assessmentYears}
+        gstClients={gstClients}
+        gstMonths={gstMonths}
+        onAddClient={onAddClient}
+        onAddCompany={onAddCompany}
+        onExportCsv={onExportCsv}
+        onOpenItAllData={onOpenItAllData}
+        onOpenGstAllData={onOpenGstAllData}
+      />
+    );
+  }
 
   return (
     <div id="top" className="space-y-4 font-[family-name:var(--font-display)]">
@@ -755,7 +795,7 @@ export function OverallDashboard({
                 const receivedY = baseY - receivedH;
                 const outstandingY = receivedY - outstandingH;
                 const topIsOutstanding = outstandingH > 0.5;
-                const tipHtml = `<b>Assessment year ${shortAy(row.assessmentYear)}</b><br/>Received ${inr(row.received)}<br/>Outstanding ${inr(row.outstanding)}<br/>Billed ${inr(row.billed)}<br/>Collection ${row.collectionPct.toFixed(1)}%`;
+                const tipLines = buildBillingHoverTipLines(row);
                 const isHovered = billingHoverYear === row.assessmentYear;
                 return (
                   <g key={row.assessmentYear}>
@@ -818,7 +858,7 @@ export function OverallDashboard({
                       className="cursor-pointer"
                       onMouseMove={(e) => {
                         setBillingHoverYear(row.assessmentYear);
-                        showTip(e, tipHtml);
+                        showTip(e, tipLines);
                       }}
                       onMouseLeave={() => {
                         setBillingHoverYear(null);
@@ -1343,7 +1383,7 @@ export function OverallDashboard({
                         i === gstTrendRows.length - 1
                           ? W - R
                           : (cx + pts[i + 1][0]) / 2;
-                      const tipHtml = `<b>${row.month}</b><br/>Tax ${inr(row.tax)}<br/>Fees ${inr(row.fees)}<br/>Interest ${inr(row.interest)}<br/><b>Total ${inr(row.total)}</b><br/>Fees + interest ${row.feesInterestPct.toFixed(1)}%`;
+                      const tipLines = buildGstHoverTipLines(row);
                       return (
                         <g key={row.month}>
                           <circle
@@ -1389,7 +1429,7 @@ export function OverallDashboard({
                             className="cursor-pointer"
                             onMouseMove={(e) => {
                               setGstHoverIdx(i);
-                              showTip(e, tipHtml);
+                              showTip(e, tipLines);
                             }}
                             onMouseLeave={() => {
                               setGstHoverIdx(null);
@@ -1440,10 +1480,10 @@ export function OverallDashboard({
             </svg>
             <div className="absolute text-center px-2 max-w-[96px]">
               <strong className="text-base font-bold block text-[var(--ink)] tabular-nums leading-tight truncate">
-                {compactInr(gstSummary.totalBilled)}
+                {compactInr(gstCompanyWide.totalBilled)}
               </strong>
               <span className="text-[10px] text-[var(--muted)] tabular-nums block truncate">
-                recd {compactInr(gstSummary.totalReceived)}
+                recd {compactInr(gstCompanyWide.totalReceived)}
               </span>
             </div>
           </div>
@@ -1487,13 +1527,7 @@ export function OverallDashboard({
         </div>
       </section>
 
-      {tip && (
-        <div
-          className="fixed z-50 bg-[var(--navy-900)] text-white px-3.5 py-2.5 rounded-[14px] text-[13px] pointer-events-none leading-relaxed"
-          style={{ left: tip.x, top: tip.y }}
-          dangerouslySetInnerHTML={{ __html: tip.html }}
-        />
-      )}
+      {tip ? <DashboardHoverTip tip={tip} /> : null}
     </div>
   );
 }

@@ -2,16 +2,16 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Copy,
   LayoutGrid,
   Plus,
-  RotateCcw,
 } from 'lucide-react';
 import type { GstClientRecord, GstMonthlyFiling } from '../types/ledger.ts';
 import {
   computeGstClientTotals,
+  computeGstFilingOutstanding,
+  computeGstFilingReceived,
   computeGstFilingTotal,
   extractMonthOrderKey,
   formatPlainNumber,
@@ -19,8 +19,25 @@ import {
   normalizeGstMonthLabel,
   sortGstMonths,
 } from '../utils/ledgerUtils.ts';
+import {
+  GST_OUTSTANDING_UNALLOCATED_EXPLAIN,
+  GST_UNALLOCATED_LABEL,
+  gstFilingDeleteWarning,
+} from '../utils/gstCopy.ts';
 import { CompanyRowMenu } from './CompanyRowMenu.tsx';
 import { PortalPasswordCell } from './PortalPasswordCell.tsx';
+import {
+  BottomPeriodNavigator,
+  TopPeriodNavigator,
+} from './shared/PeriodNavigator.tsx';
+import {
+  SimpleTableToolbar,
+  TableFooterBar,
+} from './shared/SheetTableToolbar.tsx';
+import { TABLE_FOCUS_RING } from './shared/tableStyles.ts';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
+import { GstCompanyMobileList } from './mobile/GstCompanyMobileList.tsx';
+import { ConfirmDangerButton } from './mobile/ConfirmDangerButton.tsx';
 
 interface GstSimpleTableProps {
   clients: GstClientRecord[];
@@ -67,11 +84,7 @@ function shortMonthLabel(month: string): string {
   return month;
 }
 
-const focusRing =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue-500)]';
-
-const pillBtn =
-  'inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[var(--ink)] bg-[var(--card)] border border-[var(--line)] rounded-full hover:bg-[var(--frost-100)] cursor-pointer min-h-8 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm';
+const focusRing = TABLE_FOCUS_RING;
 
 export function GstSimpleTable({
   clients,
@@ -84,9 +97,11 @@ export function GstSimpleTable({
   onOpenQuickEdit,
   onAddCompanyClick,
 }: GstSimpleTableProps) {
+  const isCompact = useIsCompactLayout();
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [showAllMonths, setShowAllMonths] = useState(false);
+  /** Default All months so filings are not hidden behind a single-month filter. */
+  const [showAllMonths, setShowAllMonths] = useState(true);
   const [monthMenuOpen, setMonthMenuOpen] = useState(false);
   const monthMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -101,7 +116,99 @@ export function GstSimpleTable({
       }
     >
   >({});
+  /** Inline edits for existing month rows — key = `${companyId}::${month}`. */
+  const [monthEdits, setMonthEdits] = useState<
+    Record<string, { fees: string; interest: string; tax: string }>
+  >({});
   const [savingCompanyId, setSavingCompanyId] = useState<string | null>(null);
+  const [savingMonthKey, setSavingMonthKey] = useState<string | null>(null);
+
+  const monthEditKey = (companyId: string, month: string) =>
+    `${companyId}::${month}`;
+
+  const getMonthEdit = (
+    companyId: string,
+    month: string,
+    filing: GstMonthlyFiling
+  ) => {
+    const key = monthEditKey(companyId, month);
+    return (
+      monthEdits[key] ?? {
+        fees: String(filing.fees ?? 0),
+        interest: String(filing.interest ?? 0),
+        tax: String(filing.tax ?? 0),
+      }
+    );
+  };
+
+  const updateMonthEdit = (
+    companyId: string,
+    month: string,
+    filing: GstMonthlyFiling,
+    field: 'fees' | 'interest' | 'tax',
+    value: string
+  ) => {
+    const key = monthEditKey(companyId, month);
+    setMonthEdits((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] ?? {
+          fees: String(filing.fees ?? 0),
+          interest: String(filing.interest ?? 0),
+          tax: String(filing.tax ?? 0),
+        }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const isMonthEditDirty = (
+    companyId: string,
+    month: string,
+    filing: GstMonthlyFiling
+  ) => {
+    const edit = monthEdits[monthEditKey(companyId, month)];
+    if (!edit) return false;
+    return (
+      Math.max(0, Number(edit.fees) || 0) !== Math.max(0, Number(filing.fees) || 0) ||
+      Math.max(0, Number(edit.interest) || 0) !==
+        Math.max(0, Number(filing.interest) || 0) ||
+      Math.max(0, Number(edit.tax) || 0) !== Math.max(0, Number(filing.tax) || 0)
+    );
+  };
+
+  const handleInlineSaveExisting = async (
+    company: GstClientRecord,
+    month: string,
+    filing: GstMonthlyFiling
+  ) => {
+    const edit = getMonthEdit(company.id, month, filing);
+    const fees = Math.max(0, Number(edit.fees) || 0);
+    const interest = Math.max(0, Number(edit.interest) || 0);
+    const tax = Math.max(0, Number(edit.tax) || 0);
+    const total = computeGstFilingTotal(fees, interest, tax);
+    const key = monthEditKey(company.id, month);
+    setSavingMonthKey(key);
+    try {
+      await onSaveFiling(company.id, {
+        month,
+        fees,
+        interest,
+        tax,
+        total,
+      });
+      setMonthEdits((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    } finally {
+      setSavingMonthKey(null);
+    }
+  };
+
+  const inlineInputClass =
+    'w-[76px] px-2 py-1 text-[11px] font-mono text-right bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]';
 
   const sortedMonths = useMemo(
     () => sortGstMonths(availableMonths),
@@ -313,127 +420,112 @@ export function GstSimpleTable({
     );
   }
 
-  return (
-    <div className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[var(--line)] bg-[var(--frost-100)] flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex items-center gap-1">
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={!canGoPrev || showAllMonths}
-            aria-label="Previous month"
-            className={`p-2 rounded-full border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${focusRing}`}
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+  const monthDropdown = (
+    <div className="relative" ref={monthMenuRef}>
+      <button
+        type="button"
+        onClick={() => setMonthMenuOpen((open) => !open)}
+        aria-expanded={monthMenuOpen}
+        aria-haspopup="listbox"
+        className={`inline-flex items-center gap-1.5 pl-4 pr-3 py-2 rounded-full bg-[var(--navy-900)] text-white text-xs font-bold font-mono min-h-8 cursor-pointer shadow-sm ${focusRing}`}
+      >
+        <span>
+          {showAllMonths ? 'All months' : shortMonthLabel(activeMonth) || '—'}
+        </span>
+        <ChevronDown className="w-3.5 h-3.5" />
+      </button>
 
-          <div className="relative" ref={monthMenuRef}>
-            <button
-              type="button"
-              onClick={() => setMonthMenuOpen((open) => !open)}
-              aria-expanded={monthMenuOpen}
-              aria-haspopup="listbox"
-              className={`inline-flex items-center gap-1.5 pl-4 pr-3 py-2 rounded-full bg-[var(--navy-900)] text-white text-xs font-bold font-mono min-h-8 cursor-pointer shadow-sm ${focusRing}`}
-            >
-              <span>
-                {showAllMonths ? 'All months' : shortMonthLabel(activeMonth) || '—'}
-              </span>
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
-
-            {monthMenuOpen && (
-              <div
-                role="listbox"
-                aria-label="GST months"
-                className="absolute left-0 top-[calc(100%+6px)] z-40 w-[168px] rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-card overflow-hidden"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAllMonths(true);
-                    setMonthMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-left text-xs font-semibold text-[var(--ink)] hover:bg-[var(--frost-100)] border-b border-[var(--line)] cursor-pointer ${focusRing}`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5 text-[var(--muted)]" />
-                  <span>All months</span>
-                </button>
-
-                <div className="max-h-64 overflow-y-auto py-1.5 px-1.5">
-                  {monthsNewestFirst.map((month) => {
-                    const selected = !showAllMonths && month === activeMonth;
-                    const isNow = month === currentMonth;
-                    const hasBilled = monthsWithBilled.has(month);
-                    return (
-                      <button
-                        key={month}
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        onClick={() => onMonthSelect(month)}
-                        className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-left text-xs font-bold font-mono cursor-pointer ${focusRing} ${
-                          selected
-                            ? 'bg-[var(--navy-900)] text-white'
-                            : 'text-[var(--ink)] hover:bg-[var(--frost-100)]'
-                        }`}
-                      >
-                        <span>
-                          {shortMonthLabel(month)}
-                          {isNow ? ' · now' : ''}
-                        </span>
-                        {hasBilled && (
-                          <span
-                            className="w-2 h-2 rounded-full bg-[var(--danger)] shrink-0"
-                            aria-label="Has billed amount"
-                          />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={!canGoNext || showAllMonths}
-            aria-label="Next month"
-            className={`p-2 rounded-full border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${focusRing}`}
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="inline-flex items-center gap-2">
-          <button
-            type="button"
-            onClick={backToCurrent}
-            disabled={isViewingCurrent && !showAllMonths}
-            className={`${pillBtn} ${focusRing}`}
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Current</span>
-          </button>
-
+      {monthMenuOpen && (
+        <div
+          role="listbox"
+          aria-label="GST months"
+          className="absolute left-0 top-[calc(100%+6px)] z-40 w-[168px] rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-card overflow-hidden"
+        >
           <button
             type="button"
             onClick={() => {
               setShowAllMonths(true);
               setMonthMenuOpen(false);
             }}
-            aria-pressed={showAllMonths}
-            className={`${pillBtn} ${focusRing} ${
-              showAllMonths ? 'bg-[var(--navy-900)] text-white border-[var(--navy-900)] hover:bg-[var(--navy-700)]' : ''
-            }`}
+            className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-left text-xs font-semibold text-[var(--ink)] hover:bg-[var(--frost-100)] border-b border-[var(--line)] cursor-pointer ${focusRing}`}
           >
-            <LayoutGrid className="w-3.5 h-3.5" />
+            <LayoutGrid className="w-3.5 h-3.5 text-[var(--muted)]" />
             <span>All months</span>
           </button>
-        </div>
-      </div>
 
+          <div className="max-h-64 overflow-y-auto py-1.5 px-1.5">
+            {monthsNewestFirst.map((month) => {
+              const selected = !showAllMonths && month === activeMonth;
+              const isNow = month === currentMonth;
+              const hasBilled = monthsWithBilled.has(month);
+              return (
+                <button
+                  key={month}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => onMonthSelect(month)}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-left text-xs font-bold font-mono cursor-pointer ${focusRing} ${
+                    selected
+                      ? 'bg-[var(--navy-900)] text-white'
+                      : 'text-[var(--ink)] hover:bg-[var(--frost-100)]'
+                  }`}
+                >
+                  <span>
+                    {shortMonthLabel(month)}
+                    {isNow ? ' · now' : ''}
+                  </span>
+                  {hasBilled && (
+                    <span
+                      className="w-2 h-2 rounded-full bg-[var(--danger)] shrink-0"
+                      aria-label="Has billed amount"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
+      <SimpleTableToolbar>
+        <TopPeriodNavigator
+          layout="split"
+          canPrev={canGoPrev}
+          canNext={canGoNext}
+          showAll={showAllMonths}
+          isViewingCurrent={isViewingCurrent}
+          onPrev={goPrev}
+          onNext={goNext}
+          onCurrent={backToCurrent}
+          onShowAll={() => {
+            setShowAllMonths(true);
+            setMonthMenuOpen(false);
+          }}
+          prevAriaLabel="Previous month"
+          nextAriaLabel="Next month"
+          allLabel="All months"
+          periodSlot={monthDropdown}
+        />
+      </SimpleTableToolbar>
+
+      {isCompact ? (
+        <GstCompanyMobileList
+          companies={clients}
+          availableMonths={availableMonths}
+          showAllMonths={showAllMonths}
+          activeMonth={activeMonth}
+          onEditCompany={onEditCompany}
+          onViewHistory={onViewHistory}
+          onDeleteCompany={onDeleteCompany}
+          onDeleteFiling={onDeleteFiling}
+          onOpenQuickEdit={onOpenQuickEdit}
+        />
+      ) : (
       <div className="overflow-x-auto ledger-scroll">
         <table className="w-full border-collapse text-left text-xs">
           <thead>
@@ -446,8 +538,12 @@ export function GstSimpleTable({
               <th className="px-2.5 py-3 font-medium whitespace-nowrap">Ref No</th>
               <th className="px-2.5 py-3 font-medium whitespace-nowrap">Remark</th>
               <th className="px-2.5 py-3 font-medium whitespace-nowrap">Monthly Filing</th>
-              <th className="px-2.5 py-3 font-medium text-right whitespace-nowrap">Total Recd</th>
-              <th className="px-2.5 py-3 font-medium text-right whitespace-nowrap">Outstanding</th>
+              <th className="px-2.5 py-3 font-medium text-right whitespace-nowrap">
+                {showAllMonths ? 'Total Recd' : 'Company Received'}
+              </th>
+              <th className="px-2.5 py-3 font-medium text-right whitespace-nowrap">
+                {showAllMonths ? 'Outstanding' : 'Company Outstanding'}
+              </th>
               <th className="px-3 py-3 font-medium text-right whitespace-nowrap">Action</th>
             </tr>
           </thead>
@@ -467,6 +563,20 @@ export function GstSimpleTable({
                 !showAllMonths && activeMonth
                   ? allCompanyMonths.filter((m) => m === activeMonth)
                   : allCompanyMonths;
+              const visibleBilled = companyMonths.reduce((sum, m) => {
+                const f = company.filings?.[m];
+                if (!f) return sum;
+                return (
+                  sum +
+                  (typeof f.total === 'number' && Number.isFinite(f.total)
+                    ? Math.max(0, f.total)
+                    : computeGstFilingTotal(
+                        Math.max(0, Number(f.fees) || 0),
+                        Math.max(0, Number(f.interest) || 0),
+                        Math.max(0, Number(f.tax) || 0)
+                      ))
+                );
+              }, 0);
               const draft = inlineDrafts[company.id];
               const draftFees = Math.max(0, Number(draft?.fees) || 0);
               const draftInt = Math.max(0, Number(draft?.interest) || 0);
@@ -545,16 +655,39 @@ export function GstSimpleTable({
                       <button
                         type="button"
                         onClick={() => toggleExpand(company)}
-                        className="text-[11px] font-semibold text-[var(--blue-500)] hover:text-[var(--ink)] hover:underline cursor-pointer"
+                        className="text-[11px] font-semibold text-[var(--blue-500)] hover:text-[var(--ink)] hover:underline cursor-pointer text-left"
                       >
-                        {companyMonths.length === 0
-                          ? '+ Add Month'
-                          : `${companyMonths.length} ${companyMonths.length === 1 ? 'Month' : 'Months'} · ₹${formatPlainNumber(totals.totalBilled)}`}
+                        {companyMonths.length === 0 ? (
+                          '+ Add Month'
+                        ) : (
+                          <span className="inline-flex flex-col items-start gap-0.5">
+                            <span>
+                              {!showAllMonths && activeMonth
+                                ? `${shortMonthLabel(activeMonth)} billed`
+                                : `${companyMonths.length} ${
+                                    companyMonths.length === 1 ? 'Month' : 'Months'
+                                  }`}{' '}
+                              · ₹{formatPlainNumber(visibleBilled)}
+                            </span>
+                            {!showAllMonths &&
+                            Math.abs(totals.totalBilled - visibleBilled) > 0.009 ? (
+                              <span className="text-[10px] font-medium text-[var(--muted)] no-underline">
+                                Company billed ₹{formatPlainNumber(totals.totalBilled)}
+                              </span>
+                            ) : null}
+                          </span>
+                        )}
                       </button>
                     </td>
 
                     <td className="px-2.5 py-2.5 text-right font-mono text-xs font-semibold text-[var(--success)] tabular-nums whitespace-nowrap">
-                      ₹{formatPlainNumber(totals.totalReceived)}
+                      <div>₹{formatPlainNumber(totals.totalReceived)}</div>
+                      {totals.unallocatedReceived > 0 && (
+                        <div className="text-[10px] font-medium text-[var(--muted)] whitespace-normal">
+                          {GST_UNALLOCATED_LABEL} ₹
+                          {formatPlainNumber(totals.unallocatedReceived)}
+                        </div>
+                      )}
                     </td>
 
                     <td
@@ -562,7 +695,15 @@ export function GstSimpleTable({
                         totals.outstandingTotal > 0 ? 'text-[var(--blue-500)]' : 'text-[var(--ink)]'
                       }`}
                     >
-                      ₹{formatPlainNumber(totals.outstandingTotal)}
+                      <div>₹{formatPlainNumber(totals.outstandingTotal)}</div>
+                      {totals.unallocatedReceived > 0 && (
+                        <div
+                          className="text-[10px] font-medium text-[var(--muted)] whitespace-normal"
+                          title={GST_OUTSTANDING_UNALLOCATED_EXPLAIN}
+                        >
+                          Incl. unallocated in company total
+                        </div>
+                      )}
                     </td>
 
                     <td className="relative z-10 has-[[aria-expanded=true]]:z-50 px-3 py-2.5 text-right whitespace-nowrap overflow-visible">
@@ -578,6 +719,13 @@ export function GstSimpleTable({
                     <tr className="bg-[var(--frost-100)]">
                       <td colSpan={11} className="px-3 py-2.5 border-t border-[var(--line)]">
                         <div className="bg-[var(--card)] border border-[var(--line)] rounded-xl overflow-hidden shadow-xs">
+                          <p className="px-3 py-2 text-[11px] text-[var(--muted)] border-b border-[var(--line)] bg-[var(--frost-100)]">
+                            Type Fees, Interest and Tax here — Total and Outstanding update
+                            live. Click <span className="font-semibold text-[var(--ink)]">Save</span>{' '}
+                            for charges. Use{' '}
+                            <span className="font-semibold text-[var(--ink)]">Pay</span> only
+                            to record payments.
+                          </p>
                           <div className="overflow-x-auto">
                             <table className="w-full border-collapse text-left text-[11px] sm:text-xs">
                               <thead>
@@ -587,6 +735,8 @@ export function GstSimpleTable({
                                   <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Interest (₹)</th>
                                   <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Tax (₹)</th>
                                   <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Total (₹)</th>
+                                  <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Recd (₹)</th>
+                                  <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Outstanding (₹)</th>
                                   <th className="px-3 py-2 font-semibold text-right whitespace-nowrap">Action</th>
                                 </tr>
                               </thead>
@@ -594,38 +744,136 @@ export function GstSimpleTable({
                               <tbody className="divide-y divide-[var(--line)]">
                                 {companyMonths.map((m) => {
                                   const f = company.filings[m];
+                                  const edit = getMonthEdit(company.id, m, f);
+                                  const liveFees = Math.max(0, Number(edit.fees) || 0);
+                                  const liveInterest = Math.max(0, Number(edit.interest) || 0);
+                                  const liveTax = Math.max(0, Number(edit.tax) || 0);
+                                  const liveTotal = computeGstFilingTotal(
+                                    liveFees,
+                                    liveInterest,
+                                    liveTax
+                                  );
+                                  const monthRecd = computeGstFilingReceived(f);
+                                  const liveOut = Math.max(0, liveTotal - monthRecd);
+                                  const dirty = isMonthEditDirty(company.id, m, f);
+                                  const rowSaving =
+                                    savingMonthKey === monthEditKey(company.id, m);
                                   return (
                                     <tr key={m} className="hover:bg-[var(--frost-100)]">
                                       <td className="px-3 py-2 font-mono font-semibold text-[var(--ink)] whitespace-nowrap">
                                         {m}
                                       </td>
-                                      <td className="px-2.5 py-2 text-right font-mono text-[var(--ink)] tabular-nums whitespace-nowrap">
-                                        ₹{formatPlainNumber(f.fees)}
+                                      <td className="px-2 py-2 text-right">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          value={edit.fees}
+                                          onChange={(e) =>
+                                            updateMonthEdit(
+                                              company.id,
+                                              m,
+                                              f,
+                                              'fees',
+                                              e.target.value
+                                            )
+                                          }
+                                          className={inlineInputClass}
+                                          aria-label={`${m} fees`}
+                                        />
                                       </td>
-                                      <td className="px-2.5 py-2 text-right font-mono text-[var(--muted)] tabular-nums whitespace-nowrap">
-                                        ₹{formatPlainNumber(f.interest)}
+                                      <td className="px-2 py-2 text-right">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          value={edit.interest}
+                                          onChange={(e) =>
+                                            updateMonthEdit(
+                                              company.id,
+                                              m,
+                                              f,
+                                              'interest',
+                                              e.target.value
+                                            )
+                                          }
+                                          className={inlineInputClass}
+                                          aria-label={`${m} interest`}
+                                        />
                                       </td>
-                                      <td className="px-2.5 py-2 text-right font-mono text-[var(--muted)] tabular-nums whitespace-nowrap">
-                                        ₹{formatPlainNumber(f.tax)}
+                                      <td className="px-2 py-2 text-right">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          value={edit.tax}
+                                          onChange={(e) =>
+                                            updateMonthEdit(
+                                              company.id,
+                                              m,
+                                              f,
+                                              'tax',
+                                              e.target.value
+                                            )
+                                          }
+                                          className={inlineInputClass}
+                                          aria-label={`${m} tax`}
+                                        />
                                       </td>
                                       <td className="px-2.5 py-2 text-right font-mono font-semibold text-[var(--ink)] tabular-nums whitespace-nowrap">
-                                        ₹{formatPlainNumber(f.total)}
+                                        ₹{formatPlainNumber(liveTotal)}
+                                      </td>
+                                      <td className="px-2.5 py-2 text-right font-mono text-[var(--success)] tabular-nums whitespace-nowrap">
+                                        ₹{formatPlainNumber(monthRecd)}
+                                      </td>
+                                      <td
+                                        className={`px-2.5 py-2 text-right font-mono font-semibold tabular-nums whitespace-nowrap ${
+                                          liveOut > 0
+                                            ? 'text-[var(--blue-500)]'
+                                            : 'text-[var(--ink)]'
+                                        }`}
+                                      >
+                                        ₹{formatPlainNumber(liveOut)}
                                       </td>
                                       <td className="px-3 py-2 text-right whitespace-nowrap">
-                                        <button
-                                          type="button"
-                                          onClick={() => onOpenQuickEdit(company, m, f)}
-                                          className="px-1.5 py-0.5 text-[11px] font-semibold text-[var(--ink)] hover:underline cursor-pointer"
-                                        >
-                                          Edit
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => void onDeleteFiling(company.id, m)}
-                                          className="px-1.5 py-0.5 text-[11px] text-[var(--danger)] hover:underline cursor-pointer"
-                                        >
-                                          Remove
-                                        </button>
+                                        <div className="inline-flex flex-col items-end gap-1">
+                                          {dirty ? (
+                                            <button
+                                              type="button"
+                                              disabled={rowSaving}
+                                              onClick={() =>
+                                                void handleInlineSaveExisting(
+                                                  company,
+                                                  m,
+                                                  f
+                                                )
+                                              }
+                                              className="inline-flex items-center px-2.5 py-1 text-[11px] font-bold text-white bg-[var(--navy-900)] hover:bg-[var(--navy-700)] rounded-lg cursor-pointer disabled:opacity-60"
+                                            >
+                                              {rowSaving ? 'Saving…' : 'Save'}
+                                            </button>
+                                          ) : null}
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              onOpenQuickEdit(company, m, f)
+                                            }
+                                            className="px-1.5 py-0.5 text-[11px] font-semibold text-[var(--blue-500)] hover:underline cursor-pointer"
+                                            title="Record or edit payments for this month"
+                                          >
+                                            Pay
+                                          </button>
+                                          <ConfirmDangerButton
+                                            label="Remove"
+                                            confirmLabel="Delete filing & payments"
+                                            warning={gstFilingDeleteWarning(
+                                              Array.isArray(f.payments)
+                                                ? f.payments.length
+                                                : 0
+                                            )}
+                                            onConfirm={() =>
+                                              onDeleteFiling(company.id, m)
+                                            }
+                                            className="!min-h-8 text-[11px]"
+                                          />
+                                        </div>
                                       </td>
                                     </tr>
                                   );
@@ -649,7 +897,7 @@ export function GstSimpleTable({
                                       value={draft?.fees || ''}
                                       onChange={(e) => updateDraft(company.id, 'fees', e.target.value)}
                                       placeholder="Fees"
-                                      className="w-[76px] px-2 py-1 text-[11px] font-mono text-right bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]"
+                                      className={inlineInputClass}
                                     />
                                   </td>
                                   <td className="px-2 py-2 text-right">
@@ -661,7 +909,7 @@ export function GstSimpleTable({
                                         updateDraft(company.id, 'interest', e.target.value)
                                       }
                                       placeholder="Interest"
-                                      className="w-[76px] px-2 py-1 text-[11px] font-mono text-right bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]"
+                                      className={inlineInputClass}
                                     />
                                   </td>
                                   <td className="px-2 py-2 text-right">
@@ -671,13 +919,25 @@ export function GstSimpleTable({
                                       value={draft?.tax || ''}
                                       onChange={(e) => updateDraft(company.id, 'tax', e.target.value)}
                                       placeholder="Tax"
-                                      className="w-[76px] px-2 py-1 text-[11px] font-mono text-right bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]"
+                                      className={inlineInputClass}
                                     />
                                   </td>
                                   <td className="px-2.5 py-2 text-right font-mono font-semibold text-[var(--ink)] tabular-nums whitespace-nowrap">
                                     ₹{formatPlainNumber(draftTotal)}
                                   </td>
-                                  <td className="px-2 py-2 text-right">
+                                  <td className="px-2.5 py-2 text-right font-mono text-[var(--muted)] tabular-nums whitespace-nowrap">
+                                    ₹0
+                                  </td>
+                                  <td
+                                    className={`px-2.5 py-2 text-right font-mono font-semibold tabular-nums whitespace-nowrap ${
+                                      draftTotal > 0
+                                        ? 'text-[var(--blue-500)]'
+                                        : 'text-[var(--ink)]'
+                                    }`}
+                                  >
+                                    ₹{formatPlainNumber(draftTotal)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right whitespace-nowrap">
                                     <button
                                       type="button"
                                       disabled={savingCompanyId === company.id}
@@ -709,28 +969,19 @@ export function GstSimpleTable({
           </tbody>
         </table>
       </div>
+      )}
 
-      <div className="px-4 py-3 border-t border-[var(--line)] bg-[var(--frost-100)]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={!canGoPrev || showAllMonths}
-            className={`${pillBtn} ${focusRing}`}
-          >
-            <span>‹ Previous{prevMonth ? ` · ${shortMonthLabel(prevMonth)}` : ''}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={!canGoNext || showAllMonths}
-            className={`${pillBtn} ${focusRing}`}
-          >
-            <span>Next{nextMonth ? ` · ${shortMonthLabel(nextMonth)}` : ''} ›</span>
-          </button>
-        </div>
-      </div>
+      <TableFooterBar>
+        <BottomPeriodNavigator
+          canPrev={canGoPrev}
+          canNext={canGoNext}
+          showAll={showAllMonths}
+          onPrev={goPrev}
+          onNext={goNext}
+          prevText={`‹ Previous${prevMonth ? ` · ${shortMonthLabel(prevMonth)}` : ''}`}
+          nextText={`Next${nextMonth ? ` · ${shortMonthLabel(nextMonth)}` : ''} ›`}
+        />
+      </TableFooterBar>
     </div>
   );
 }

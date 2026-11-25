@@ -1,15 +1,26 @@
 import { useMemo, useState } from 'react';
-import { ArrowUpRight, ChevronDown, ChevronUp, Plus, TrendingUp, X } from 'lucide-react';
+import { ArrowUpRight, Plus, TrendingUp, X } from 'lucide-react';
 import type { GstClientRecord } from '../types/ledger.ts';
 import {
   computeGstFilingTotal,
   formatPlainNumber,
+  getGstFinancialYearLabel,
 } from '../utils/ledgerUtils.ts';
+import {
+  GST_FY_RECD_SCOPE_NOTE,
+  gstFyUnallocatedSeparateNote,
+} from '../utils/gstCopy.ts';
 import { computeGstMonthSummary } from '../utils/summaryUtils.ts';
+import {
+  DashboardMetricPanel,
+  DashboardStatsToolbar,
+} from './shared/DashboardStatsChrome.tsx';
+import { MultiSeriesLineChart } from './shared/MultiSeriesLineChart.tsx';
 
 interface GstDashboardHeroBannerProps {
   clients: GstClientRecord[];
   months: string[];
+  selectedFy?: string;
   onAddCompany: () => void;
   onOpenAllData: () => void;
 }
@@ -17,12 +28,18 @@ interface GstDashboardHeroBannerProps {
 export function GstDashboardHeroBanner({
   clients,
   months,
+  selectedFy,
   onAddCompany,
   onOpenAllData,
 }: GstDashboardHeroBannerProps) {
   const summary = useMemo(() => computeGstMonthSummary(clients, months), [clients, months]);
-  const firstMonth = summary.rows[0]?.month || 'Apr 2026';
-  const lastMonth = summary.rows[summary.rows.length - 1]?.month || 'Mar 2027';
+  const firstMonth = summary.rows[0]?.month || months[0] || 'Apr 2026';
+  const lastMonth =
+    summary.rows[summary.rows.length - 1]?.month ||
+    months[months.length - 1] ||
+    'Mar 2027';
+  const fyLabel =
+    selectedFy || getGstFinancialYearLabel(firstMonth) || 'Selected FY';
 
   return (
     <section className="relative overflow-hidden rounded-2xl bg-grad-soft text-[var(--ink)] p-5 shadow-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -38,6 +55,8 @@ export function GstDashboardHeroBanner({
       <div className="relative space-y-1.5 max-w-xl">
         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/75 text-[11px] font-semibold text-[var(--ink)]">
           <TrendingUp className="w-3 h-3 text-[var(--blue-500)]" />
+          <span className="font-mono">{fyLabel}</span>
+          <span aria-hidden="true">·</span>
           {firstMonth} – {lastMonth}
         </span>
         <h2 className="font-display text-lg sm:text-xl font-bold tracking-tight text-[var(--ink)]">
@@ -45,7 +64,7 @@ export function GstDashboardHeroBanner({
         </h2>
         <p className="text-xs sm:text-sm text-[var(--ink)]">
           {clients.length} GST {clients.length === 1 ? 'company' : 'companies'} · {summary.totalEntries}{' '}
-          {summary.totalEntries === 1 ? 'filing' : 'filings'} in the selected year.
+          {summary.totalEntries === 1 ? 'filing' : 'filings'} in {fyLabel}.
         </p>
       </div>
 
@@ -74,6 +93,7 @@ export function GstDashboardHeroBanner({
 interface GstMonthSummaryViewProps {
   clients: GstClientRecord[];
   months: string[];
+  selectedFy?: string;
   onOpenAllData: () => void;
 }
 
@@ -88,14 +108,20 @@ function shortMonthLabel(m: string): string {
 export function GstMonthSummaryView({
   clients,
   months,
+  selectedFy,
   onOpenAllData,
 }: GstMonthSummaryViewProps) {
   const summary = useMemo(() => computeGstMonthSummary(clients, months), [clients, months]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [showStatsData, setShowStatsData] = useState(false);
 
-  const firstMonth = summary.rows[0]?.month || 'Apr 2026';
-  const lastMonth = summary.rows[summary.rows.length - 1]?.month || 'Mar 2027';
+  const firstMonth = summary.rows[0]?.month || months[0] || 'Apr 2026';
+  const lastMonth =
+    summary.rows[summary.rows.length - 1]?.month ||
+    months[months.length - 1] ||
+    'Mar 2027';
+  const fyLabel =
+    selectedFy || getGstFinancialYearLabel(firstMonth) || 'Selected FY';
 
   const maxMonthTotal = Math.max(1, ...summary.rows.map((r) => r.totalBilled));
 
@@ -174,227 +200,89 @@ export function GstMonthSummaryView({
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowStatsData((p) => !p)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[var(--frost-100)] hover:bg-[var(--sky-200)] text-xs font-semibold text-[var(--ink)] transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <span>{showStatsData ? 'Hide Data' : 'Show Data'}</span>
-                {showStatsData ? (
-                  <ChevronUp className="w-3.5 h-3.5" />
-                ) : (
-                  <ChevronDown className="w-3.5 h-3.5" />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={onOpenAllData}
-                className="text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer whitespace-nowrap"
-              >
-                See more
-              </button>
-            </div>
+            <DashboardStatsToolbar
+              showStatsData={showStatsData}
+              onToggleStats={() => setShowStatsData((p) => !p)}
+              onSeeMore={onOpenAllData}
+            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)] gap-5 items-end">
-            <button
-              type="button"
-              onClick={() => setShowStatsData((p) => !p)}
-              className="text-left space-y-4 rounded-xl p-2 -m-2 hover:bg-[var(--frost-100)] transition-colors cursor-pointer"
-              title="Click to show or hide GST monthly breakdown"
-            >
-              <div>
-                <p className="text-xs text-[var(--muted)]">
-                  {activeRow ? `${activeRow.month} Total` : 'Grand Total'}
-                </p>
-                <p className="mt-0.5 font-mono text-2xl font-bold tracking-tight text-[var(--ink)] tabular-nums">
-                  ₹{formatPlainNumber(displayTotal)}
-                </p>
-              </div>
-
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-2 text-[var(--muted)] font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[var(--navy-900)] border border-[var(--navy-900)]/20" />
-                    Fees
-                  </span>
-                  <span className="font-mono font-semibold text-[var(--ink)] tabular-nums">
-                    ₹{formatPlainNumber(displayFees)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-2 text-[var(--muted)] font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[var(--navy-900)]" />
-                    Interest
-                  </span>
-                  <span className="font-mono font-semibold text-[var(--muted)] tabular-nums">
-                    ₹{formatPlainNumber(displayInterest)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-2 text-[var(--muted)] font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[var(--ice)]" />
-                    Tax
-                  </span>
-                  <span className="font-mono font-semibold text-[var(--blue-500)] tabular-nums">
-                    ₹{formatPlainNumber(displayTax)}
-                  </span>
-                </div>
-              </div>
-            </button>
+            <DashboardMetricPanel
+              title={activeRow ? `${activeRow.month} Total` : 'Grand Total'}
+              primaryValue={formatPlainNumber(displayTotal)}
+              onToggle={() => setShowStatsData((p) => !p)}
+              titleAttr="Click to show or hide GST monthly breakdown"
+              legend={[
+                {
+                  swatchClass:
+                    'bg-[var(--navy-900)] border border-[var(--navy-900)]/20',
+                  label: 'Fees',
+                  valueNode: (
+                    <span className="font-mono font-semibold text-[var(--ink)] tabular-nums">
+                      ₹{formatPlainNumber(displayFees)}
+                    </span>
+                  ),
+                },
+                {
+                  swatchClass: 'bg-[var(--navy-900)]',
+                  label: 'Interest',
+                  valueNode: (
+                    <span className="font-mono font-semibold text-[var(--muted)] tabular-nums">
+                      ₹{formatPlainNumber(displayInterest)}
+                    </span>
+                  ),
+                },
+                {
+                  swatchClass: 'bg-[var(--ice)]',
+                  label: 'Tax',
+                  valueNode: (
+                    <span className="font-mono font-semibold text-[var(--blue-500)] tabular-nums">
+                      ₹{formatPlainNumber(displayTax)}
+                    </span>
+                  ),
+                },
+              ]}
+            />
 
             <div className="w-full min-w-0 pt-1">
-              {(() => {
-                const rows = summary.rows;
-                const n = rows.length;
-                const W = 560;
-                const H = 168;
-                const padT = 12;
-                const padR = 10;
-                const padB = 28;
-                const padL = 10;
-                const plotW = W - padL - padR;
-                const plotH = H - padT - padB;
-                const xAt = (i: number) =>
-                  padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
-                const yAt = (value: number) =>
-                  padT +
-                  (1 - Math.min(1, Math.max(0, value / maxMonthTotal))) * plotH;
-
-                const pts = rows.map((row, i) => ({
-                  x: xAt(i),
-                  feesY: yAt(row.fees),
-                  interestY: yAt(row.interest),
-                  taxY: yAt(row.tax),
-                }));
-
-                const linePath = (getY: (p: (typeof pts)[number]) => number) =>
-                  pts
-                    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${getY(p)}`)
-                    .join(' ');
-
-                return (
-                  <div className="relative w-full">
-                    <svg
-                      viewBox={`0 0 ${W} ${H}`}
-                      className="w-full h-[168px] sm:h-[180px]"
-                      role="img"
-                      aria-label="Monthly fees, interest and tax line chart"
-                    >
-                      <line
-                        x1={padL}
-                        y1={yAt(0)}
-                        x2={W - padR}
-                        y2={yAt(0)}
-                        stroke="var(--line)"
-                        strokeWidth="1"
-                      />
-
-                      <path
-                        d={linePath((p) => p.taxY)}
-                        fill="none"
-                        stroke="var(--ice)"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d={linePath((p) => p.feesY)}
-                        fill="none"
-                        stroke="var(--ice)"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d={linePath((p) => p.interestY)}
-                        fill="none"
-                        stroke="var(--ink)"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-
-                      {rows.map((row, i) => {
-                        const isSelected = selectedMonth === row.month;
-                        const cx = pts[i].x;
-                        return (
-                          <g key={row.month}>
-                            {isSelected && (
-                              <line
-                                x1={cx}
-                                y1={padT}
-                                x2={cx}
-                                y2={yAt(0)}
-                                stroke="var(--ink)"
-                                strokeWidth="1.5"
-                                strokeDasharray="4 3"
-                                opacity="0.35"
-                              />
-                            )}
-                            <circle
-                              cx={cx}
-                              cy={pts[i].taxY}
-                              r={isSelected ? 4.5 : 3}
-                              fill="var(--sky-200)"
-                              stroke="var(--ink)"
-                              strokeWidth="1"
-                            />
-                            <circle
-                              cx={cx}
-                              cy={pts[i].feesY}
-                              r={isSelected ? 4.5 : 3}
-                              fill="var(--ice)"
-                              stroke="var(--ink)"
-                              strokeWidth="1"
-                            />
-                            <circle
-                              cx={cx}
-                              cy={pts[i].interestY}
-                              r={isSelected ? 4.5 : 3}
-                              fill={isSelected ? 'var(--navy-900)' : 'var(--card)'}
-                              stroke="var(--ink)"
-                              strokeWidth="1.5"
-                            />
-                            <text
-                              x={cx}
-                              y={H - 8}
-                              textAnchor="middle"
-                              className="fill-[var(--muted)]"
-                              style={{
-                                fontSize: '9px',
-                                fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-                                fontWeight: isSelected ? 700 : 500,
-                              }}
-                            >
-                              {shortMonthLabel(row.month).split(' ')[0]}
-                            </text>
-                          </g>
-                        );
-                      })}
-                    </svg>
-
-                    <div className="absolute inset-0 flex">
-                      {rows.map((row) => {
-                        const isSelected = selectedMonth === row.month;
-                        return (
-                          <button
-                            key={row.month}
-                            type="button"
-                            onClick={() => handleBarClick(row.month)}
-                            aria-pressed={isSelected}
-                            title={`${row.month} — Fees ₹${formatPlainNumber(row.fees)} | Int ₹${formatPlainNumber(row.interest)} | Tax ₹${formatPlainNumber(row.tax)} | Total ₹${formatPlainNumber(row.totalBilled)}`}
-                            className={`flex-1 h-full rounded-lg cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue-500)] ${
-                              isSelected ? 'bg-[var(--frost-100)]/35' : 'hover:bg-[var(--frost-100)]/50'
-                            }`}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
+              <MultiSeriesLineChart
+                keys={summary.rows.map((r) => r.month)}
+                labels={summary.rows.map(
+                  (r) => shortMonthLabel(r.month).split(' ')[0]
+                )}
+                maxValue={maxMonthTotal}
+                selectedKey={selectedMonth}
+                onSelect={handleBarClick}
+                ariaLabel="Monthly fees, interest and tax line chart"
+                labelFontSize="9px"
+                getHitTitle={(i) => {
+                  const row = summary.rows[i];
+                  return `${row.month} — Fees ₹${formatPlainNumber(row.fees)} | Int ₹${formatPlainNumber(row.interest)} | Tax ₹${formatPlainNumber(row.tax)} | Total ₹${formatPlainNumber(row.totalBilled)}`;
+                }}
+                series={[
+                  {
+                    values: summary.rows.map((r) => r.tax),
+                    stroke: 'var(--ice)',
+                    strokeWidth: 2.5,
+                    circleFill: 'var(--sky-200)',
+                  },
+                  {
+                    values: summary.rows.map((r) => r.fees),
+                    stroke: 'var(--ice)',
+                    strokeWidth: 2.5,
+                    circleFill: 'var(--ice)',
+                  },
+                  {
+                    values: summary.rows.map((r) => r.interest),
+                    stroke: 'var(--ink)',
+                    strokeWidth: 2,
+                    circleFill: (sel) =>
+                      sel ? 'var(--navy-900)' : 'var(--card)',
+                    circleStrokeWidth: 1.5,
+                  },
+                ]}
+              />
             </div>
           </div>
 
@@ -532,7 +420,7 @@ export function GstMonthSummaryView({
               GST Totals Summary
             </h3>
             <p className="text-xs text-[var(--muted)] mt-0.5">
-              Fees + Interest + Tax = Total
+              {fyLabel} · Fees + Interest + Tax = Total
             </p>
           </div>
 
@@ -565,13 +453,23 @@ export function GstMonthSummaryView({
 
           <div className="pt-2 border-t border-[var(--line)] space-y-1.5 text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-[var(--muted)]">Total Recd</span>
+              <span className="text-[var(--muted)]">FY Total Recd</span>
               <span className="font-mono font-semibold text-[var(--success)] tabular-nums">
                 ₹{formatPlainNumber(summary.totalReceived)}
               </span>
             </div>
+            <p className="text-[10px] text-[var(--muted)] leading-snug">
+              {GST_FY_RECD_SCOPE_NOTE}
+            </p>
+            {summary.unallocatedReceived > 0 ? (
+              <p className="text-[10px] text-[var(--muted)] leading-snug">
+                {gstFyUnallocatedSeparateNote(
+                  `₹${formatPlainNumber(summary.unallocatedReceived)}`
+                )}
+              </p>
+            ) : null}
             <div className="flex items-center justify-between">
-              <span className="text-[var(--muted)]">Outstanding</span>
+              <span className="text-[var(--muted)]">FY Outstanding</span>
               <span
                 className={`font-mono font-semibold tabular-nums ${
                   summary.totalOutstanding > 0 ? 'text-[var(--blue-500)]' : 'text-[var(--ink)]'

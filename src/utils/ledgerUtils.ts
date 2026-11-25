@@ -5,6 +5,7 @@ import type {
   GstClientRecord,
   GstClientTotals,
 } from '../types/ledger.ts';
+import { toCsvLines } from './csvHelpers.ts';
 import { normalizePanInput } from './fieldValidation.ts';
 
 export function formatCurrency(amount: number): string {
@@ -73,20 +74,107 @@ export function computeGstFilingTotal(fees: number, interest: number, tax: numbe
   return f + i + t;
 }
 
+/** Sum of payment amounts allocated to one monthly filing. */
+export function computeGstFilingReceived(filing: {
+  payments?: Array<{ amount?: number }>;
+  received?: number;
+}): number {
+  const payments = filing.payments;
+  if (Array.isArray(payments)) {
+    return payments.reduce((sum, p) => sum + Math.max(0, Number(p.amount) || 0), 0);
+  }
+  return Math.max(0, Number(filing.received) || 0);
+}
+
+export function getGstFilingCollectibleTotal(filing: {
+  fees?: number;
+  interest?: number;
+  tax?: number;
+  total?: number;
+}): number {
+  const fees = Math.max(0, Number(filing.fees) || 0);
+  const interest = Math.max(0, Number(filing.interest) || 0);
+  const tax = Math.max(0, Number(filing.tax) || 0);
+  if (typeof filing.total === 'number' && Number.isFinite(filing.total)) {
+    return Math.max(0, filing.total);
+  }
+  return computeGstFilingTotal(fees, interest, tax);
+}
+
+/** Outstanding for one month = collectible Total − Received (floored at 0). */
+export function computeGstFilingOutstanding(filing: {
+  fees?: number;
+  interest?: number;
+  tax?: number;
+  total?: number;
+  payments?: Array<{ amount?: number }>;
+  received?: number;
+}): number {
+  const total = getGstFilingCollectibleTotal(filing);
+  const received = computeGstFilingReceived(filing);
+  return Math.max(0, total - received);
+}
+
+function gstClientHasPaymentLines(client: GstClientRecord): boolean {
+  return Object.values(client.filings || {}).some(
+    (f) => Array.isArray(f.payments) && f.payments.length > 0
+  );
+}
+
+/** True when any filing has a payments array (including empty after deletes). */
+export function gstClientUsesPaymentAccounting(client: GstClientRecord): boolean {
+  return Object.values(client.filings || {}).some((f) => Array.isArray(f.payments));
+}
+
+/** Sum of all month-allocated payments (0 when no payment lines exist). */
+export function sumGstClientPaymentLines(client: GstClientRecord): number {
+  let sum = 0;
+  for (const filing of Object.values(client.filings || {})) {
+    sum += computeGstFilingReceived({
+      payments: filing.payments,
+      received: 0,
+    });
+  }
+  return sum;
+}
+
+/** Unallocated legacy company receipts (never assigned to a month). */
+export function getGstUnallocatedReceived(client: GstClientRecord): number {
+  return Math.max(0, Number(client.unallocatedReceived) || 0);
+}
+
+/** True when month Received exceeds that month's collectible Total. */
+export function gstFilingHasOverReceipt(filing: {
+  fees?: number;
+  interest?: number;
+  tax?: number;
+  total?: number;
+  payments?: Array<{ amount?: number }>;
+  received?: number;
+}): boolean {
+  const total = getGstFilingCollectibleTotal(filing);
+  const received = computeGstFilingReceived(filing);
+  return received - total > 0.009;
+}
+
+/**
+ * Company Total Recd / Outstanding.
+ * Payment-line mode: Total Recd = allocated payments + unallocated legacy.
+ * Outstanding = max(0, billed − Total Recd) — unallocated is not assigned to a month.
+ * Pure legacy (no payments arrays): pool totalReceived only.
+ */
 export function computeGstClientTotals(client: GstClientRecord): GstClientTotals {
   let totalFees = 0;
   let totalInterest = 0;
   let totalTax = 0;
   let totalBilled = 0;
+  const usesPaymentAccounting = gstClientUsesPaymentAccounting(client);
 
   for (const filing of Object.values(client.filings || {})) {
     const fees = Math.max(0, Number(filing.fees) || 0);
     const interest = Math.max(0, Number(filing.interest) || 0);
     const tax = Math.max(0, Number(filing.tax) || 0);
-    const total =
-      typeof filing.total === 'number' && Number.isFinite(filing.total)
-        ? Math.max(0, filing.total)
-        : computeGstFilingTotal(fees, interest, tax);
+    const total = getGstFilingCollectibleTotal(filing);
 
     totalFees += fees;
     totalInterest += interest;
@@ -94,24 +182,44 @@ export function computeGstClientTotals(client: GstClientRecord): GstClientTotals
     totalBilled += total;
   }
 
-  const totalReceived = Math.max(0, Number(client.totalReceived) || 0);
-  const outstandingTotal = Math.max(0, totalBilled - totalReceived);
+  if (usesPaymentAccounting) {
+    const allocatedReceived = sumGstClientPaymentLines(client);
+    const unallocatedReceived = getGstUnallocatedReceived(client);
+    const totalReceived = allocatedReceived + unallocatedReceived;
+    return {
+      totalFees,
+      totalInterest,
+      totalTax,
+      totalBilled,
+      allocatedReceived,
+      unallocatedReceived,
+      totalReceived,
+      outstandingTotal: Math.max(0, totalBilled - totalReceived),
+    };
+  }
+
+  const pool = Math.max(0, Number(client.totalReceived) || 0);
+  const unallocatedReceived = getGstUnallocatedReceived(client);
+  // Pure legacy: pool is the company receipt figure (unallocated field usually unset).
+  const totalReceived = unallocatedReceived > 0 ? unallocatedReceived : pool;
 
   return {
     totalFees,
     totalInterest,
     totalTax,
     totalBilled,
+    allocatedReceived: 0,
+    unallocatedReceived: unallocatedReceived > 0 ? unallocatedReceived : 0,
     totalReceived,
-    outstandingTotal,
+    outstandingTotal: Math.max(0, totalBilled - totalReceived),
   };
 }
 
 export function extractYearOrderKey(ayLabel: string): number {
   const match = ayLabel.match(/(\d{4})/);
-  if (match) return parseInt(match[1], 10);
+  if (match) return Number.parseInt(match[1], 10);
   const shortMatch = ayLabel.match(/(\d{2})/);
-  if (shortMatch) return 2000 + parseInt(shortMatch[1], 10);
+  if (shortMatch) return 2000 + Number.parseInt(shortMatch[1], 10);
   return 0;
 }
 
@@ -127,7 +235,7 @@ export function normalizeAssessmentYearLabel(input: string): string {
   if (trimmed.startsWith('AY ')) return trimmed;
   if (/^\d{4}-\d{2}$/.test(trimmed)) return `AY ${trimmed}`;
   if (/^\d{4}$/.test(trimmed)) {
-    const start = parseInt(trimmed, 10);
+    const start = Number.parseInt(trimmed, 10);
     const endShort = String((start + 1) % 100).padStart(2, '0');
     return `AY ${start}-${endShort}`;
   }
@@ -195,8 +303,8 @@ export function normalizeGstMonthLabel(input: string): string {
 
   const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})$/);
   if (isoMatch) {
-    const yr = parseInt(isoMatch[1], 10);
-    const mIdx = parseInt(isoMatch[2], 10) - 1;
+    const yr = Number.parseInt(isoMatch[1], 10);
+    const mIdx = Number.parseInt(isoMatch[2], 10) - 1;
     if (mIdx >= 0 && mIdx <= 11) {
       return `${MONTH_NAMES[mIdx]} ${yr}`;
     }
@@ -204,8 +312,8 @@ export function normalizeGstMonthLabel(input: string): string {
 
   const slashMatch = trimmed.match(/^(\d{1,2})[/\-](\d{4})$/);
   if (slashMatch) {
-    const mIdx = parseInt(slashMatch[1], 10) - 1;
-    const yr = parseInt(slashMatch[2], 10);
+    const mIdx = Number.parseInt(slashMatch[1], 10) - 1;
+    const yr = Number.parseInt(slashMatch[2], 10);
     if (mIdx >= 0 && mIdx <= 11) {
       return `${MONTH_NAMES[mIdx]} ${yr}`;
     }
@@ -215,7 +323,7 @@ export function normalizeGstMonthLabel(input: string): string {
   if (textMatch) {
     const mIdx = MONTH_LOOKUP[textMatch[1].toLowerCase()];
     if (mIdx !== undefined) {
-      const rawYr = parseInt(textMatch[2], 10);
+      const rawYr = Number.parseInt(textMatch[2], 10);
       const yr = rawYr < 100 ? 2000 + rawYr : rawYr;
       return `${MONTH_NAMES[mIdx]} ${yr}`;
     }
@@ -229,7 +337,7 @@ export function extractMonthOrderKey(monthLabel: string): number {
   const match = normalized.match(/^([A-Za-z]+)\s+(\d{4})$/);
   if (match) {
     const mIdx = MONTH_LOOKUP[match[1].toLowerCase()];
-    const yr = parseInt(match[2], 10);
+    const yr = Number.parseInt(match[2], 10);
     if (mIdx !== undefined) {
       return yr * 12 + mIdx;
     }
@@ -266,7 +374,7 @@ export function formatGstFinancialYearLabel(startYear: number): string {
 export function parseGstFinancialYearStart(fyLabel: string): number | null {
   const match = fyLabel.trim().match(/^FY\s*(\d{4})\s*[-/]\s*(\d{2}|\d{4})$/i);
   if (!match) return null;
-  return parseInt(match[1], 10);
+  return Number.parseInt(match[1], 10);
 }
 
 export function getGstFinancialYearLabel(monthLabel: string): string {
@@ -274,7 +382,7 @@ export function getGstFinancialYearLabel(monthLabel: string): string {
   const match = normalized.match(/^([A-Za-z]+)\s+(\d{4})$/);
   if (!match) return '';
   const mIdx = MONTH_LOOKUP[match[1].toLowerCase()];
-  const calendarYear = parseInt(match[2], 10);
+  const calendarYear = Number.parseInt(match[2], 10);
   if (mIdx === undefined || !Number.isFinite(calendarYear)) return '';
   const startYear = mIdx >= 3 ? calendarYear : calendarYear - 1;
   return formatGstFinancialYearLabel(startYear);
@@ -336,14 +444,6 @@ export function filterMonthsByGstFinancialYear(
   );
 }
 
-function escapeCsvCell(value: string | number | undefined | null): string {
-  const str = String(value ?? '');
-  if (/[",\n\r]/.test(str)) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
-
 export function exportContinuousCsv(clients: ClientRecord[], years: string[]): string {
   const sortedYears = sortAssessmentYears(years);
   const headers = [
@@ -389,12 +489,10 @@ export function exportContinuousCsv(clients: ClientRecord[], years: string[]): s
       ...yearCells,
       totals.totalReceived,
       totals.outstandingTotal,
-    ]
-      .map(escapeCsvCell)
-      .join(',');
+    ];
   });
 
-  return [headers.map(escapeCsvCell).join(','), ...rows].join('\r\n');
+  return toCsvLines([headers, ...rows]);
 }
 
 export function downloadTextFile(filename: string, content: string, mime = 'text/csv;charset=utf-8;') {

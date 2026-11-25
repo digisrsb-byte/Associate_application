@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
-import { ArrowUpRight, ChevronDown, ChevronUp, Layers, Plus, TrendingUp, X } from 'lucide-react';
+import { ArrowUpRight, Layers, Plus, TrendingUp, X } from 'lucide-react';
 import type { ClientRecord, FilingRecord } from '../types/ledger.ts';
 import { computeBalance, formatDisplayDate, formatPlainNumber } from '../utils/ledgerUtils.ts';
 import { computeYearSummary } from '../utils/summaryUtils.ts';
+import {
+  DashboardMetricPanel,
+  DashboardStatsToolbar,
+} from './shared/DashboardStatsChrome.tsx';
+import { MultiSeriesLineChart } from './shared/MultiSeriesLineChart.tsx';
 
 interface DashboardHeroBannerProps {
   clients: ClientRecord[];
@@ -185,228 +190,88 @@ export function YearSummaryView({
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleToggleStatsPanel}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[var(--frost-100)] hover:bg-[var(--sky-200)] text-xs font-semibold text-[var(--ink)] transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <span>{showStatsData ? 'Hide Data' : 'Show Data'}</span>
-                {showStatsData ? (
-                  <ChevronUp className="w-3.5 h-3.5" />
-                ) : (
-                  <ChevronDown className="w-3.5 h-3.5" />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={onOpenAllData}
-                className="text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer whitespace-nowrap"
-              >
-                See more
-              </button>
-            </div>
+            <DashboardStatsToolbar
+              showStatsData={showStatsData}
+              onToggleStats={handleToggleStatsPanel}
+              onSeeMore={onOpenAllData}
+            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-[210px_minmax(0,1fr)] gap-5 items-end">
-            {/* Left clickable summary + legend */}
-            <button
-              type="button"
-              onClick={handleToggleStatsPanel}
-              className="text-left space-y-4 rounded-xl p-2 -m-2 hover:bg-[var(--frost-100)] transition-colors cursor-pointer"
-              title="Click to show or hide detailed statistics data"
-            >
-              <div>
-                <p className="text-xs text-[var(--muted)]">
-                  {activeRow ? `${activeRow.year} Billed` : 'Total Billed'}
-                </p>
-                <p className="mt-0.5 font-mono text-2xl font-bold tracking-tight text-[var(--ink)] tabular-nums">
-                  ₹{formatPlainNumber(displayBilled)}
-                </p>
-              </div>
+            <DashboardMetricPanel
+              title={activeRow ? `${activeRow.year} Billed` : 'Total Billed'}
+              primaryValue={formatPlainNumber(displayBilled)}
+              onToggle={handleToggleStatsPanel}
+              titleAttr="Click to show or hide detailed statistics data"
+              legend={[
+                {
+                  swatchClass:
+                    'bg-[var(--navy-900)] border border-[var(--navy-900)]/20',
+                  label: 'Received',
+                  valueNode: (
+                    <span className="font-mono font-semibold text-[var(--success)] tabular-nums">
+                      ₹{formatPlainNumber(displayReceived)}
+                    </span>
+                  ),
+                },
+                {
+                  swatchClass: 'bg-[var(--ice)]',
+                  label: 'Outstanding',
+                  valueNode: (
+                    <span className="font-mono font-semibold text-[var(--blue-500)] tabular-nums">
+                      ₹{formatPlainNumber(displayOutstanding)}
+                    </span>
+                  ),
+                },
+                {
+                  swatchClass: 'bg-[var(--navy-900)]',
+                  label: 'Collection',
+                  valueNode: (
+                    <span className="font-mono font-semibold text-[var(--ink)] tabular-nums">
+                      {displayCollectionPct.toFixed(1)}%
+                    </span>
+                  ),
+                },
+              ]}
+            />
 
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-2 text-[var(--muted)] font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[var(--navy-900)] border border-[var(--navy-900)]/20" />
-                    Received
-                  </span>
-                  <span className="font-mono font-semibold text-[var(--success)] tabular-nums">
-                    ₹{formatPlainNumber(displayReceived)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-2 text-[var(--muted)] font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[var(--ice)]" />
-                    Outstanding
-                  </span>
-                  <span className="font-mono font-semibold text-[var(--blue-500)] tabular-nums">
-                    ₹{formatPlainNumber(displayOutstanding)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-2 text-[var(--muted)] font-medium">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[var(--navy-900)]" />
-                    Collection
-                  </span>
-                  <span className="font-mono font-semibold text-[var(--ink)] tabular-nums">
-                    {displayCollectionPct.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-            </button>
-
-            {/* Right clickable multi-line chart */}
             <div className="w-full min-w-0 pt-1">
-              {(() => {
-                const rows = summary.rows;
-                const n = rows.length;
-                const W = 560;
-                const H = 168;
-                const padT = 12;
-                const padR = 10;
-                const padB = 28;
-                const padL = 10;
-                const plotW = W - padL - padR;
-                const plotH = H - padT - padB;
-                const xAt = (i: number) =>
-                  padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
-                const yAt = (value: number) =>
-                  padT + (1 - Math.min(1, Math.max(0, value / maxYearBilled))) * plotH;
-
-                const pts = rows.map((row, i) => ({
-                  x: xAt(i),
-                  receivedY: yAt(row.received),
-                  outstandingY: yAt(row.outstanding),
-                  collectionY: yAt((row.collectionPct / 100) * maxYearBilled),
-                }));
-
-                const linePath = (getY: (p: (typeof pts)[number]) => number) =>
-                  pts
-                    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${getY(p)}`)
-                    .join(' ');
-
-                return (
-                  <div className="relative w-full">
-                    <svg
-                      viewBox={`0 0 ${W} ${H}`}
-                      className="w-full h-[168px] sm:h-[180px]"
-                      role="img"
-                      aria-label="Yearly received, outstanding and collection line chart"
-                    >
-                      <line
-                        x1={padL}
-                        y1={yAt(0)}
-                        x2={W - padR}
-                        y2={yAt(0)}
-                        stroke="var(--line)"
-                        strokeWidth="1"
-                      />
-
-                      <path
-                        d={linePath((p) => p.outstandingY)}
-                        fill="none"
-                        stroke="var(--ice)"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d={linePath((p) => p.receivedY)}
-                        fill="none"
-                        stroke="var(--ice)"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d={linePath((p) => p.collectionY)}
-                        fill="none"
-                        stroke="var(--ink)"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-
-                      {rows.map((row, i) => {
-                        const isSelected = selectedYear === row.year;
-                        const cx = pts[i].x;
-                        return (
-                          <g key={row.year}>
-                            {isSelected && (
-                              <line
-                                x1={cx}
-                                y1={padT}
-                                x2={cx}
-                                y2={yAt(0)}
-                                stroke="var(--ink)"
-                                strokeWidth="1.5"
-                                strokeDasharray="4 3"
-                                opacity="0.35"
-                              />
-                            )}
-                            <circle
-                              cx={cx}
-                              cy={pts[i].outstandingY}
-                              r={isSelected ? 4.5 : 3}
-                              fill="var(--sky-200)"
-                              stroke="var(--ink)"
-                              strokeWidth="1"
-                            />
-                            <circle
-                              cx={cx}
-                              cy={pts[i].receivedY}
-                              r={isSelected ? 4.5 : 3}
-                              fill="var(--ice)"
-                              stroke="var(--ink)"
-                              strokeWidth="1"
-                            />
-                            <circle
-                              cx={cx}
-                              cy={pts[i].collectionY}
-                              r={isSelected ? 4.5 : 3}
-                              fill={isSelected ? 'var(--navy-900)' : 'var(--card)'}
-                              stroke="var(--ink)"
-                              strokeWidth="1.5"
-                            />
-                            <text
-                              x={cx}
-                              y={H - 8}
-                              textAnchor="middle"
-                              className="fill-[var(--muted)]"
-                              style={{
-                                fontSize: '10px',
-                                fontFamily: 'JetBrains Mono, ui-monospace, monospace',
-                                fontWeight: isSelected ? 700 : 500,
-                              }}
-                            >
-                              {shortAyLabel(row.year)}
-                            </text>
-                          </g>
-                        );
-                      })}
-                    </svg>
-
-                    <div className="absolute inset-0 flex">
-                      {rows.map((row) => {
-                        const isSelected = selectedYear === row.year;
-                        return (
-                          <button
-                            key={row.year}
-                            type="button"
-                            onClick={() => handleBarClick(row.year)}
-                            aria-pressed={isSelected}
-                            title={`Click to inspect ${row.year} — Billed ₹${formatPlainNumber(row.amountBilled)} | Received ₹${formatPlainNumber(row.received)} | Outstanding ₹${formatPlainNumber(row.outstanding)}`}
-                            className={`flex-1 h-full rounded-lg cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue-500)] ${
-                              isSelected ? 'bg-[var(--frost-100)]/35' : 'hover:bg-[var(--frost-100)]/50'
-                            }`}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
+              <MultiSeriesLineChart
+                keys={summary.rows.map((r) => r.year)}
+                labels={summary.rows.map((r) => shortAyLabel(r.year))}
+                maxValue={maxYearBilled}
+                selectedKey={selectedYear}
+                onSelect={handleBarClick}
+                ariaLabel="Yearly received, outstanding and collection line chart"
+                getHitTitle={(i) => {
+                  const row = summary.rows[i];
+                  return `Click to inspect ${row.year} — Billed ₹${formatPlainNumber(row.amountBilled)} | Received ₹${formatPlainNumber(row.received)} | Outstanding ₹${formatPlainNumber(row.outstanding)}`;
+                }}
+                series={[
+                  {
+                    values: summary.rows.map((r) => r.outstanding),
+                    stroke: 'var(--ice)',
+                    strokeWidth: 2.5,
+                    circleFill: 'var(--sky-200)',
+                  },
+                  {
+                    values: summary.rows.map((r) => r.received),
+                    stroke: 'var(--ice)',
+                    strokeWidth: 2.5,
+                    circleFill: 'var(--ice)',
+                  },
+                  {
+                    values: summary.rows.map(
+                      (r) => (r.collectionPct / 100) * maxYearBilled
+                    ),
+                    stroke: 'var(--ink)',
+                    strokeWidth: 2,
+                    circleFill: (sel) =>
+                      sel ? 'var(--navy-900)' : 'var(--card)',
+                    circleStrokeWidth: 1.5,
+                  },
+                ]}
+              />
             </div>
           </div>
 

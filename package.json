@@ -1,38 +1,116 @@
 {
-  "name": "react-example",
+  "name": "associate-it-gst-ledger",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.7.0",
+  "description": "ASSOCIATE — IT & GST Filing Ledger desktop and web application",
+  "author": "SRSB",
   "type": "module",
+  "main": "electron/main.cjs",
+  "productName": "ASSOCIATE IT GST Ledger",
   "scripts": {
     "dev": "tsx server.ts",
-    "start": "node server.ts",
-    "build": "vite build",
+    "start": "node scripts/start-production.mjs",
+    "build": "vite build && node scripts/build-server.mjs",
+    "build:server": "node scripts/build-server.mjs",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "clean": "node -e \"const fs=require('fs');for (const p of ['dist','server.mjs','server.mjs.map','server.js']){try{fs.rmSync(p,{recursive:true,force:true})}catch{}}\"",
+    "lint": "tsc --noEmit",
+    "electron:dev": "electron .",
+    "electron:start": "electron .",
+    "electron:verify": "node scripts/verify-electron-shell.mjs",
+    "dist:win": "electron-builder --win nsis --x64",
+    "e2e:prepare": "node scripts/e2e-prepare-data-dir.mjs",
+    "e2e:assert-isolation": "node scripts/e2e-assert-isolation.mjs",
+    "e2e:stage0-verify": "node scripts/e2e-stage0-regression.mjs",
+    "e2e:stage5-config": "node scripts/e2e-stage5-config-inspect.mjs",
+    "e2e:server": "node scripts/e2e-start-server.mjs",
+    "test:e2e": "npm run e2e:prepare && npm run e2e:assert-isolation -- && playwright test",
+    "test:e2e:headed": "npm run e2e:prepare && npm run e2e:assert-isolation -- && playwright test --headed",
+    "test:e2e:report": "playwright show-report playwright-report",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:pg-auth": "vitest run --config tests/pg-auth/vitest.config.ts",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:preflight": "node scripts/db-preflight.mjs",
+    "db:provision-owners": "tsx scripts/provision-two-owners.ts",
+    "db:rollback": "node scripts/db-rollback.mjs",
+    "import:ledger:pg": "tsx scripts/import-ledger-to-pg.mjs",
+    "verify:ledger:pg": "tsx scripts/verify-ledger-pg.mjs",
+    "db:backup-pg-local": "node scripts/pg-dump-backup.mjs"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
-    "@tailwindcss/vite": "^4.3.3",
-    "@vitejs/plugin-react": "^6.1.1",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^5.1.1",
+    "autoprefixer": "^10.4.21",
+    "electron": "^39.2.3",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.28.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^8.3.0"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.1.1"
+  },
+  "build": {
+    "appId": "com.srsb.associate.itgst",
+    "productName": "ASSOCIATE IT GST Ledger",
+    "copyright": "Copyright © SRSB",
+    "directories": {
+      "output": "release",
+      "buildResources": "electron/resources"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json",
+      "desktop-config.example.json"
+    ],
+    "extraResources": [
+      {
+        "from": "desktop-config.example.json",
+        "to": "desktop-config.example.json"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/resources/icon.ico",
+      "artifactName": "ASSOCIATE-IT-GST-Ledger-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ASSOCIATE IT GST Ledger",
+      "uninstallDisplayName": "ASSOCIATE IT GST Ledger"
+    },
+    "asar": true
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   }
 }

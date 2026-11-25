@@ -1,0 +1,9 @@
+{
+  "_comment": "Optional controlled dummy fixture for future E2E — fake identity only. Not loaded automatically in Stage 0.",
+  "name": "E2E Dummy Client Pvt Ltd",
+  "pan": "AAAAA0000A",
+  "email": "dummy.client@example.test",
+  "phone": "9000000000",
+  "portalPassword": "NotARealPortalPassword!",
+  "notes": "Synthetic test record — no real client details."
+}
