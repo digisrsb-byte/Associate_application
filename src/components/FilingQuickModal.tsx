@@ -1,16 +1,18 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import type { ClientRecord, FilingRecord } from '../types/ledger.ts';
 import { PAYMENT_TYPES } from '../types/ledger.ts';
 import { computeBalance, formatPlainNumber } from '../utils/ledgerUtils.ts';
 import { LimeSelect } from './LimeSelect.tsx';
 import { ConfirmDangerButton } from './mobile/ConfirmDangerButton.tsx';
+import type { ItQuickEditFocus } from '../types/itUi.ts';
 
 interface FilingQuickModalProps {
   target: {
     client: ClientRecord;
     year: string;
     existing?: FilingRecord;
+    focus?: ItQuickEditFocus;
   } | null;
   onClose: () => void;
   onSave: (clientId: string, filing: FilingRecord) => Promise<void>;
@@ -20,6 +22,9 @@ interface FilingQuickModalProps {
 const fieldClass =
   'w-full min-h-11 px-3 py-2.5 text-sm sm:text-xs sm:min-h-0 sm:py-2 font-mono border border-[var(--line)] rounded-xl focus:outline-none focus:border-[var(--blue-500)]';
 
+const sectionTitle =
+  'text-[11px] font-semibold text-[var(--muted)] uppercase tracking-wide';
+
 export function FilingQuickModal({
   target,
   onClose,
@@ -27,6 +32,8 @@ export function FilingQuickModal({
   onDelete,
 }: FilingQuickModalProps) {
   const uid = useId();
+  const feesInputRef = useRef<HTMLInputElement>(null);
+  const receivedInputRef = useRef<HTMLInputElement>(null);
   const [filingDate, setFilingDate] = useState('');
   const [fees, setFees] = useState('');
   const [received, setReceived] = useState('');
@@ -52,6 +59,17 @@ export function FilingQuickModal({
       setPaymentType('GPay');
       setPaymentReceiveDate('');
     }
+  }, [target]);
+
+  useEffect(() => {
+    if (!target) return;
+    const focusPayment = target.focus === 'payment';
+    const id = window.setTimeout(() => {
+      const el = focusPayment ? receivedInputRef.current : feesInputRef.current;
+      el?.focus({ preventScroll: false });
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 80);
+    return () => window.clearTimeout(id);
   }, [target]);
 
   if (!target) return null;
@@ -127,114 +145,145 @@ export function FilingQuickModal({
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label
-                  htmlFor={`${uid}-filing-date`}
-                  className="block text-xs font-medium text-[var(--ink)] mb-1"
-                >
-                  Filing Date
-                </label>
-                <input
-                  id={`${uid}-filing-date`}
-                  type="date"
-                  value={filingDate}
-                  onChange={(e) => setFilingDate(e.target.value)}
-                  className={fieldClass}
-                />
-              </div>
+            <p className="rounded-xl border border-[var(--line)] bg-[var(--frost-100)] px-3 py-2.5 text-[11px] text-[var(--muted)] leading-relaxed">
+              Enter billed{' '}
+              <span className="font-semibold text-[var(--ink)]">Fees</span> and
+              total{' '}
+              <span className="font-semibold text-[var(--ink)]">Received</span>.
+              Balance updates live as Fees − Received (minimum zero).{' '}
+              <span className="font-semibold text-[var(--ink)]">Save filing</span>{' '}
+              saves Fees and Received together for this year (same existing
+              filing record).
+            </p>
 
-              <div>
-                <label
-                  htmlFor={`${uid}-pay-date`}
-                  className="block text-xs font-medium text-[var(--ink)] mb-1"
-                >
-                  Payment Receive Date
-                </label>
-                <input
-                  id={`${uid}-pay-date`}
-                  type="date"
-                  value={paymentReceiveDate}
-                  onChange={(e) => setPaymentReceiveDate(e.target.value)}
-                  className={fieldClass}
-                />
-              </div>
-            </div>
+            <section className="space-y-3" aria-labelledby={`${uid}-charges-heading`}>
+              <h3 id={`${uid}-charges-heading`} className={sectionTitle}>
+                Filing charges
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor={`${uid}-filing-date`}
+                    className="block text-xs font-medium text-[var(--ink)] mb-1"
+                  >
+                    Filing Date
+                  </label>
+                  <input
+                    id={`${uid}-filing-date`}
+                    type="date"
+                    value={filingDate}
+                    onChange={(e) => setFilingDate(e.target.value)}
+                    className={fieldClass}
+                  />
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label
-                  htmlFor={`${uid}-fees`}
-                  className="block text-xs font-medium text-[var(--ink)] mb-1"
-                >
-                  Fees (₹)
-                </label>
-                <input
-                  id={`${uid}-fees`}
-                  type="number"
-                  min={0}
-                  value={fees}
-                  onChange={(e) => setFees(e.target.value)}
-                  placeholder="10000"
-                  className={fieldClass}
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor={`${uid}-received`}
-                  className="block text-xs font-medium text-[var(--ink)] mb-1"
-                >
-                  Received (₹)
-                </label>
-                <input
-                  id={`${uid}-received`}
-                  type="number"
-                  min={0}
-                  value={received}
-                  onChange={(e) => setReceived(e.target.value)}
-                  placeholder="9000"
-                  className={fieldClass}
-                />
-              </div>
-
-              <div>
-                <p className="block text-xs font-medium text-[var(--ink)] mb-1">
-                  Balance (₹)
-                </p>
-                <div
-                  className={`min-h-11 sm:min-h-0 px-3 py-2.5 sm:py-2 text-sm sm:text-xs font-mono font-semibold rounded-xl border tabular-nums flex items-center ${
-                    balance > 0
-                      ? 'bg-[var(--frost-100)] border-[var(--line)] text-[var(--blue-500)]'
-                      : 'bg-[var(--success-15)] border-[var(--success)] text-[var(--success)]'
-                  }`}
-                  aria-live="polite"
-                >
-                  ₹{formatPlainNumber(balance)}
+                <div>
+                  <label
+                    htmlFor={`${uid}-fees`}
+                    className="block text-xs font-medium text-[var(--ink)] mb-1"
+                  >
+                    Fees (₹)
+                  </label>
+                  <input
+                    id={`${uid}-fees`}
+                    ref={feesInputRef}
+                    type="number"
+                    min={0}
+                    value={fees}
+                    onChange={(e) => setFees(e.target.value)}
+                    placeholder="10000"
+                    className={fieldClass}
+                  />
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div>
-              <label
-                htmlFor={`${uid}-payment-type`}
-                className="block text-xs font-medium text-[var(--ink)] mb-1"
-              >
-                Payment Type
-              </label>
-              <LimeSelect
-                id={`${uid}-payment-type`}
-                value={paymentType}
-                options={
-                  paymentType &&
-                  !(PAYMENT_TYPES as readonly string[]).includes(paymentType)
-                    ? [...PAYMENT_TYPES, paymentType]
-                    : PAYMENT_TYPES
-                }
-                onChange={setPaymentType}
-                ariaLabel="Payment type"
-              />
-            </div>
+            <section className="space-y-3" aria-labelledby={`${uid}-payment-heading`}>
+              <h3 id={`${uid}-payment-heading`} className={sectionTitle}>
+                Payment received
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor={`${uid}-received`}
+                    className="block text-xs font-medium text-[var(--ink)] mb-1"
+                  >
+                    Received (₹)
+                  </label>
+                  <input
+                    id={`${uid}-received`}
+                    ref={receivedInputRef}
+                    type="number"
+                    min={0}
+                    value={received}
+                    onChange={(e) => setReceived(e.target.value)}
+                    placeholder="9000"
+                    className={fieldClass}
+                  />
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    Total paid for this year so far.
+                  </p>
+                </div>
+
+                <div>
+                  <p className="block text-xs font-medium text-[var(--ink)] mb-1">
+                    Balance (₹)
+                  </p>
+                  <div
+                    className={`min-h-11 sm:min-h-0 px-3 py-2.5 sm:py-2 text-sm sm:text-xs font-mono font-semibold rounded-xl border tabular-nums flex items-center ${
+                      balance > 0
+                        ? 'bg-[var(--frost-100)] border-[var(--line)] text-[var(--blue-500)]'
+                        : 'bg-[var(--success-15)] border-[var(--success)] text-[var(--success)]'
+                    }`}
+                    aria-live="polite"
+                  >
+                    ₹{formatPlainNumber(balance)}
+                  </div>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    Outstanding for this year (read-only).
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor={`${uid}-pay-date`}
+                    className="block text-xs font-medium text-[var(--ink)] mb-1"
+                  >
+                    Payment Receive Date
+                  </label>
+                  <input
+                    id={`${uid}-pay-date`}
+                    type="date"
+                    value={paymentReceiveDate}
+                    onChange={(e) => setPaymentReceiveDate(e.target.value)}
+                    className={fieldClass}
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor={`${uid}-payment-type`}
+                    className="block text-xs font-medium text-[var(--ink)] mb-1"
+                  >
+                    Payment Type
+                  </label>
+                  <LimeSelect
+                    id={`${uid}-payment-type`}
+                    value={paymentType}
+                    options={
+                      paymentType &&
+                      !(PAYMENT_TYPES as readonly string[]).includes(paymentType)
+                        ? [...PAYMENT_TYPES, paymentType]
+                        : PAYMENT_TYPES
+                    }
+                    onChange={setPaymentType}
+                    ariaLabel="Payment type"
+                  />
+                </div>
+              </div>
+            </section>
           </div>
 
           <div className="px-5 py-4 border-t border-[var(--line)] flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0 bg-[var(--card)]">
@@ -262,7 +311,7 @@ export function FilingQuickModal({
                 disabled={saving}
                 className="flex-1 sm:flex-none min-h-11 px-5 py-2 text-sm sm:text-xs font-bold text-white bg-[var(--navy-900)] hover:bg-[var(--navy-700)] rounded-xl cursor-pointer disabled:opacity-60"
               >
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? 'Saving...' : 'Save filing'}
               </button>
             </div>
           </div>

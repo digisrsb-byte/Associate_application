@@ -17,7 +17,10 @@ import {
 } from '../../utils/ledgerUtils.ts';
 import { CompanyRowMenu } from '../CompanyRowMenu.tsx';
 import { PortalPasswordCell } from '../PortalPasswordCell.tsx';
+import type { ItQuickEditFocus } from '../../types/itUi.ts';
 import { ConfirmDangerButton } from './ConfirmDangerButton.tsx';
+import { PaymentStatusBadge } from '../PaymentStatusBadge.tsx';
+import { classifyItFilingsStatus } from '../../utils/paymentStatusUi.ts';
 
 export interface ItClientMobileListProps {
   clients: ClientRecord[];
@@ -31,7 +34,8 @@ export interface ItClientMobileListProps {
   onOpenQuickEdit: (
     client: ClientRecord,
     year: string,
-    existing?: FilingRecord
+    existing?: FilingRecord,
+    focus?: ItQuickEditFocus
   ) => void;
 }
 
@@ -102,6 +106,11 @@ export function ItClientMobileList({
             : showAllYears
               ? `${clientYears.length} ${clientYears.length === 1 ? 'year' : 'years'}`
               : activeYear || `${clientYears.length} years`;
+        const clientTotalsFiltered = !showAllYears && Boolean(activeYear);
+        const periodFilings = clientYears
+          .map((y) => client.filings?.[y])
+          .filter(Boolean);
+        const payStatus = classifyItFilingsStatus(periodFilings);
 
         return (
           <li
@@ -164,16 +173,36 @@ export function ItClientMobileList({
                     <span className="rounded-lg border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)]">
                       {periodHint}
                     </span>
-                    <span
-                      className={`rounded-lg px-2.5 py-1 font-mono text-[12px] font-bold tabular-nums ${
-                        totals.outstandingTotal > 0
-                          ? 'bg-[var(--navy-900)] text-white'
-                          : 'bg-[var(--success-15)] text-[var(--success)]'
-                      }`}
-                    >
-                      {totals.outstandingTotal > 0 ? 'Due ' : ''}₹
-                      {formatPlainNumber(totals.outstandingTotal)}
-                    </span>
+                    <PaymentStatusBadge status={payStatus} />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-xl border border-[var(--line)] bg-[var(--frost-100)] px-2.5 py-2">
+                      <p className="text-[10px] font-semibold text-[var(--muted)] leading-snug">
+                        {clientTotalsFiltered
+                          ? 'Client Received (all years)'
+                          : 'Received'}
+                      </p>
+                      <p className="mt-0.5 font-mono text-[12px] font-bold tabular-nums text-[var(--success)]">
+                        ₹{formatPlainNumber(totals.totalReceived)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--line)] bg-[var(--frost-100)] px-2.5 py-2">
+                      <p className="text-[10px] font-semibold text-[var(--muted)] leading-snug">
+                        {clientTotalsFiltered
+                          ? 'Client Outstanding (all years)'
+                          : 'Outstanding'}
+                      </p>
+                      <p
+                        className={`mt-0.5 font-mono text-[12px] font-bold tabular-nums ${
+                          totals.outstandingTotal > 0
+                            ? 'text-[var(--blue-500)]'
+                            : 'text-[var(--ink)]'
+                        }`}
+                      >
+                        ₹{formatPlainNumber(totals.outstandingTotal)}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -194,20 +223,51 @@ export function ItClientMobileList({
                   className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--frost-100)] text-xs font-bold text-[var(--ink)] cursor-pointer"
                 >
                   <Pencil className="w-3.5 h-3.5" />
-                  Edit
+                  Edit client
                 </button>
-                <button
-                  type="button"
-                  onClick={() => toggleExpand(client.id)}
-                  className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl border border-[var(--line)] text-xs font-bold text-[var(--navy-900)] cursor-pointer"
-                >
-                  {isExpanded ? 'Hide details' : 'View filings'}
-                </button>
+                {clientYears.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenQuickEdit(
+                        client,
+                        suggestYearForAdd(client),
+                        undefined,
+                        'fees'
+                      )
+                    }
+                    className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[var(--navy-900)] text-xs font-bold text-white cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add filing
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(client.id)}
+                    className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl border border-[var(--line)] text-xs font-bold text-[var(--navy-900)] cursor-pointer"
+                  >
+                    {isExpanded ? 'Hide details' : 'View filings'}
+                  </button>
+                )}
               </div>
             </div>
 
             {isExpanded && (
               <div className="border-t border-[var(--line)] bg-[var(--frost-100)]/50 px-3.5 py-3 space-y-2.5">
+                <p className="rounded-xl border border-[var(--line)] bg-[var(--card)] px-3 py-2.5 text-[11px] text-[var(--muted)] leading-relaxed">
+                  <span className="font-semibold text-[var(--ink)]">Fees</span>{' '}
+                  = amount billed.{' '}
+                  <span className="font-semibold text-[var(--ink)]">
+                    Received
+                  </span>{' '}
+                  = total paid so far.{' '}
+                  <span className="font-semibold text-[var(--ink)]">
+                    Balance
+                  </span>{' '}
+                  = Fees − Received (minimum zero).
+                </p>
+
                 <div className="flex items-center justify-between gap-2 text-[11px]">
                   <span className="text-[var(--muted)] font-medium">Portal password</span>
                   <PortalPasswordCell
@@ -261,7 +321,7 @@ export function ItClientMobileList({
                                   : 'bg-[var(--success-15)] text-[var(--success)]'
                               }`}
                             >
-                              Bal ₹{formatPlainNumber(f.balance)}
+                              Balance ₹{formatPlainNumber(f.balance)}
                             </span>
                           </div>
                           <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-mono tabular-nums">
@@ -281,10 +341,21 @@ export function ItClientMobileList({
                           <div className="mt-2.5 flex flex-col gap-2">
                             <button
                               type="button"
-                              onClick={() => onOpenQuickEdit(client, yr, f)}
+                              onClick={() =>
+                                onOpenQuickEdit(client, yr, f, 'fees')
+                              }
                               className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-[var(--line)] bg-[var(--card)] text-xs font-bold text-[var(--ink)] cursor-pointer"
                             >
-                              Edit filing
+                              Edit fees
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenQuickEdit(client, yr, f, 'payment')
+                              }
+                              className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-[var(--navy-900)] text-xs font-bold text-white cursor-pointer"
+                            >
+                              Update received
                             </button>
                             <ConfirmDangerButton
                               onConfirm={() => onDeleteFiling(client.id, yr)}
@@ -298,7 +369,14 @@ export function ItClientMobileList({
 
                 <button
                   type="button"
-                  onClick={() => onOpenQuickEdit(client, suggestYearForAdd(client))}
+                  onClick={() =>
+                    onOpenQuickEdit(
+                      client,
+                      suggestYearForAdd(client),
+                      undefined,
+                      'fees'
+                    )
+                  }
                   className="inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--navy-900)] px-3 text-xs font-bold text-white cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />

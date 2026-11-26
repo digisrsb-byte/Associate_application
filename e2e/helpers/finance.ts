@@ -237,7 +237,7 @@ export async function saveItFilingInQuickModal(
   if (values.paymentReceiveDate) {
     await dialog.locator('input[type="date"]').nth(1).fill(values.paymentReceiveDate);
   }
-  await dialog.getByRole('button', { name: /^Save$/i }).click();
+  await dialog.getByRole('button', { name: /^Save( filing)?$/i }).click();
   await expect(dialog).toBeHidden({ timeout: 15_000 });
 }
 

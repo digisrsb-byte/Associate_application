@@ -10,6 +10,8 @@ interface TopSummaryCardsProps {
   outstandingTotal: number;
   totalBilled: number;
   totalEntries: number;
+  /** Filings with outstanding &gt; 0 (existing balances — display only). */
+  pendingPaymentsCount?: number;
   entityPluralLabel?: string;
   entitySingularLabel?: string;
   periodPluralLabel?: string;
@@ -18,6 +20,8 @@ interface TopSummaryCardsProps {
   totalReceivedNote?: string;
   /** Optional scope label under Total Received title (e.g. selected FY). */
   receivedScopeLabel?: string;
+  /** Override the collections card title (e.g. Monthly collections). */
+  receivedTitle?: string;
 }
 
 export function TopSummaryCards({
@@ -27,12 +31,14 @@ export function TopSummaryCards({
   outstandingTotal,
   totalBilled,
   totalEntries,
+  pendingPaymentsCount,
   entityPluralLabel = 'Clients',
   entitySingularLabel = 'client',
   periodPluralLabel = 'Assessment Years',
   periodSingularLabel = 'Assessment Year',
   totalReceivedNote,
   receivedScopeLabel,
+  receivedTitle = 'Collections received',
 }: TopSummaryCardsProps) {
   const collectionPct = totalBilled > 0 ? Math.min(100, (totalReceived / totalBilled) * 100) : 0;
   const outstandingPct = totalBilled > 0 ? Math.min(100, (outstandingTotal / totalBilled) * 100) : 0;
@@ -75,7 +81,7 @@ export function TopSummaryCards({
         <div className="relative flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-white/75">
-              Total Received
+              {receivedTitle}
             </p>
             {receivedScopeLabel ? (
               <p className="mt-0.5 text-[10px] font-mono font-semibold text-white/65">
@@ -146,7 +152,7 @@ export function TopSummaryCards({
         <div className="relative flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--navy-900)]/70">
-              Outstanding Total
+              Outstanding due
             </p>
             <p className="mt-1 font-mono text-xl sm:text-[22px] font-bold tracking-tight tabular-nums text-[var(--navy-900)]">
               {formatCurrency(outstandingTotal)}
@@ -159,8 +165,16 @@ export function TopSummaryCards({
 
         <div className="relative space-y-1">
           <div className="flex items-center justify-between text-[11px] font-medium text-[var(--navy-900)]/70 tabular-nums">
-            <span>{outstandingPct.toFixed(1)}% pending</span>
-            <span>{outstandingTotal > 0 ? 'Balance due' : 'All cleared'}</span>
+            <span>{outstandingPct.toFixed(1)}% of billed</span>
+            <span>
+              {typeof pendingPaymentsCount === 'number'
+                ? outstandingTotal > 0
+                  ? `${pendingPaymentsCount} pending payment${pendingPaymentsCount === 1 ? '' : 's'}`
+                  : 'All cleared'
+                : outstandingTotal > 0
+                  ? 'Balance due'
+                  : 'All cleared'}
+            </span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-[var(--navy-900)]/15 overflow-hidden">
             <motion.div
@@ -182,7 +196,7 @@ export function TopSummaryCards({
         <div className="relative flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Total {entityPluralLabel}
+              {entityPluralLabel} count
             </p>
             <div className="mt-1 flex items-baseline gap-2">
               <p className="font-mono text-xl sm:text-[22px] font-bold tracking-tight tabular-nums text-[var(--ink)]">

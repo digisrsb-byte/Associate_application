@@ -37,7 +37,11 @@ export function FilingStatusPill({
         ? 'bg-[var(--warning-15)] text-[var(--warning)]'
         : 'bg-[var(--danger-15)] text-[var(--danger)]';
   const label =
-    status === 'paid' ? 'Paid' : status === 'part' ? 'Part paid' : 'Unpaid';
+    status === 'paid'
+      ? 'Paid'
+      : status === 'part'
+        ? 'Partially Paid'
+        : 'Pending';
   return (
     <span
       className={`inline-flex px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${styles}`}
