@@ -262,7 +262,7 @@ export async function openGstFilingEditor(
   await goGstAllData(page);
   await selectGstAllMonths(page);
   await page
-    .getByPlaceholder(/Search companies by name, user ID/i)
+    .getByPlaceholder(/Search by company, User ID|Search companies by name, user ID/i)
     .fill(companyName);
   const row = page.locator('tr').filter({ hasText: companyName }).first();
   await expect(row).toBeVisible({ timeout: 15_000 });
@@ -297,7 +297,7 @@ export async function openGstNewMonthFiling(
   await page.getByRole('button', { name: /Sheet View/i }).click();
   await selectGstAllMonths(page);
   await page
-    .getByPlaceholder(/Search companies by name, user ID/i)
+    .getByPlaceholder(/Search by company, User ID|Search companies by name, user ID/i)
     .fill(companyName);
   const row = page.locator('tr').filter({ hasText: companyName }).first();
   await expect(row).toBeVisible({ timeout: 15_000 });

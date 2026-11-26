@@ -403,7 +403,7 @@ test.describe('Phase 8D.5 — GST usability and payment-history safety', () => {
     await page.reload();
     await goGstAllData(page);
     await page
-      .getByPlaceholder(/Search companies by name, user ID/i)
+      .getByPlaceholder(/Search by company, User ID|Search companies by name, user ID/i)
       .fill(userId);
     const row = page.locator('tr').filter({ hasText: companyName }).first();
     await expect(row.getByText(/Unallocated Received/i)).toBeVisible({
@@ -628,7 +628,7 @@ test.describe('Phase 8D.8 / 8D.13 — GST visible payment entry', () => {
     await page.getByRole('tab', { name: /Sheet View/i }).click();
     await selectGstAllMonths(page);
     await page
-      .getByPlaceholder(/Search companies by name, user ID/i)
+      .getByPlaceholder(/Search by company, User ID|Search companies by name, user ID/i)
       .fill(userId);
 
     const row = page.locator('tr').filter({ hasText: companyName }).first();
