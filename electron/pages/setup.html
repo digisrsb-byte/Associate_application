@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ASSOCIATE — Setup required</title>
+    <style>
+      :root {
+        --ink: #14132a;
+        --muted: #5c5a72;
+        --card: #f7f7fb;
+        --navy: #1a1840;
+        --line: #d8d6e5;
+        --accent: #1fa6a0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: linear-gradient(160deg, #e4e6f0 0%, #f0f4f8 55%, #e8f6f4 100%);
+        color: var(--ink);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      main {
+        width: 100%;
+        max-width: 520px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 28px 28px 24px;
+        box-shadow: 0 12px 40px rgba(26, 24, 64, 0.08);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.35rem;
+        color: var(--navy);
+      }
+      p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        line-height: 1.5;
+        font-size: 0.95rem;
+      }
+      code {
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 0.8rem;
+        background: #eceaf5;
+        padding: 2px 6px;
+        border-radius: 6px;
+        word-break: break-all;
+      }
+      ul {
+        margin: 0 0 16px;
+        padding-left: 1.2rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.55;
+      }
+      .reason {
+        margin: 16px 0;
+        padding: 12px 14px;
+        border-left: 4px solid var(--accent);
+        background: #eef9f8;
+        border-radius: 0 10px 10px 0;
+        color: var(--ink);
+        font-size: 0.9rem;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        background: var(--navy);
+        color: #fff;
+        font-weight: 600;
+        font-size: 0.9rem;
+        padding: 10px 16px;
+        border-radius: 10px;
+        cursor: pointer;
+      }
+      button:hover {
+        filter: brightness(1.08);
+      }
+      .paths {
+        margin-top: 14px;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Hosted URL not configured</h1>
+      <p>
+        ASSOCIATE desktop connects to the shared organization over HTTPS. Cloud
+        hosting has not been configured yet, so this window cannot load the
+        application.
+      </p>
+      <div class="reason" id="reason">Checking configuration…</div>
+      <p>When hosting is ready, configure one of:</p>
+      <ul>
+        <li>
+          Environment variable <code>DESKTOP_APP_URL</code> (HTTPS URL)
+        </li>
+        <li>
+          File <code>desktop-config.json</code> in the app data folder with
+          <code>{"appUrl":"https://…"}</code>
+        </li>
+        <li>
+          Or place <code>desktop-config.json</code> next to the installed
+          executable
+        </li>
+      </ul>
+      <p>
+        Do not put database credentials, API keys, or passwords in the desktop
+        app. Authentication stays on the hosted server.
+      </p>
+      <button type="button" id="retry">Retry</button>
+      <div class="paths" id="paths"></div>
+    </main>
+    <script>
+      (async () => {
+        const info = await window.associateDesktop.getShellInfo();
+        const reason = document.getElementById('reason');
+        const paths = document.getElementById('paths');
+        reason.textContent = info.message || 'Configuration required.';
+        if (info.configPaths) {
+          paths.innerHTML =
+            'User config path:<br/><code>' +
+            (info.configPaths.userData || '—') +
+            '</code>';
+        }
+        document.getElementById('retry').onclick = () => {
+          window.associateDesktop.retryLoad();
+        };
+      })();
+    </script>
+  </body>
+</html>

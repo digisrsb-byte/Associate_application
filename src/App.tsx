@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { LayoutGrid, Search, Table2 } from 'lucide-react';
 import type {
   ClientRecord,
@@ -8,19 +9,35 @@ import type {
   LedgerState,
   MainSection,
 } from './types/ledger.ts';
+import type { ItQuickEditFocus } from './types/itUi.ts';
 import {
+  collectGstFinancialYears,
   computeClientTotals,
   computeGstClientTotals,
+  computeGstFilingOutstanding,
   downloadTextFile,
+  formatPlainNumber,
   getCurrentGstFinancialYearLabel,
   getMonthsForGstFinancialYear,
   getNextAssessmentYear,
   getNextGstMonth,
   normalizeAssessmentYearLabel,
   normalizeGstMonthLabel,
+  shiftGstFinancialYear,
   sortAssessmentYears,
+  sortGstFinancialYears,
   sortGstMonths,
 } from './utils/ledgerUtils.ts';
+import {
+  matchesGstCompanySearch,
+  matchesItClientSearch,
+} from './utils/recordSearch.ts';
+import {
+  GST_FY_RECD_SCOPE_NOTE,
+  gstFyUnallocatedSeparateNote,
+} from './utils/gstCopy.ts';
+import { computeGstFyDashboardTotals } from './utils/summaryUtils.ts';
+import { GstYearSelector } from './components/GstYearSelector.tsx';
 import {
   exportAllDataExcelCsv,
   exportClientSummaryExcelCsv,
@@ -56,8 +73,18 @@ import {
 } from './components/ClientEditDrawer.tsx';
 import { ToastBanner, type ToastMessage } from './components/ToastBanner.tsx';
 import { DataTransferModal } from './components/DataTransferModal.tsx';
+import { LoginPage } from './components/LoginPage.tsx';
+import { PageFade } from './components/MotionBits.tsx';
+import { MobileBottomNav } from './components/mobile/MobileBottomNav.tsx';
+import { MobileMoreSheet } from './components/mobile/MobileMoreSheet.tsx';
+import { apiFetch } from './utils/api.ts';
+
+type AuthStatus = 'checking' | 'loggedOut' | 'loggedIn';
 
 export default function App() {
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('checking');
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
   const [ledger, setLedger] = useState<LedgerState>({
     assessmentYears: [],
     clients: [],
@@ -72,8 +99,10 @@ export default function App() {
   const [dataViewMode, setDataViewMode] = useState<'simple' | 'sheet'>('simple');
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const currentGstFy = useMemo(() => getCurrentGstFinancialYearLabel(), []);
+  const [selectedGstFy, setSelectedGstFy] = useState(currentGstFy);
 
   // IT Modals / Drawer
   const [clientModalOpen, setClientModalOpen] = useState(false);
@@ -83,6 +112,7 @@ export default function App() {
     client: ClientRecord;
     year: string;
     existing?: FilingRecord;
+    focus?: ItQuickEditFocus;
   } | null>(null);
 
   // GST Modals / Drawer
@@ -94,13 +124,29 @@ export default function App() {
     company: GstClientRecord;
     month: string;
     existing?: GstMonthlyFiling;
+    focus?: 'charges' | 'payment';
   } | null>(null);
+
+  const handleUnauthorized = () => {
+    setAuthStatus('loggedOut');
+    setUserEmail(null);
+    setLedger({
+      assessmentYears: [],
+      clients: [],
+      gstMonths: [],
+      gstClients: [],
+    });
+  };
 
   const fetchLedger = async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch('/api/ledger');
+      const res = await apiFetch('/api/ledger');
+      if (res.status === 401) {
+        handleUnauthorized();
+        throw new Error('Session expired. Please log in again.');
+      }
       if (!res.ok) throw new Error('Unable to load records.');
       const data = (await res.json()) as LedgerState;
       setLedger({
@@ -117,32 +163,75 @@ export default function App() {
   };
 
   useEffect(() => {
-    void fetchLedger();
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch('/api/auth/me');
+        if (cancelled) return;
+        if (!res.ok) {
+          setAuthStatus('loggedOut');
+          setLoading(false);
+          return;
+        }
+        const data = (await res.json()) as {
+          authenticated?: boolean;
+          email?: string;
+        };
+        if (data.authenticated) {
+          setUserEmail(data.email || null);
+          setAuthStatus('loggedIn');
+        } else {
+          setAuthStatus('loggedOut');
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setAuthStatus('loggedOut');
+          setLoading(false);
+        }
+      }
+    })().catch(() => {
+      if (!cancelled) {
+        setAuthStatus('loggedOut');
+        setLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  useEffect(() => {
+    if (authStatus === 'loggedIn') {
+      void fetchLedger();
+    }
+  }, [authStatus]);
+
+  const handleLoginSuccess = (email: string) => {
+    setUserEmail(email);
+    setAuthStatus('loggedIn');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // ignore network errors on logout
+    }
+    handleUnauthorized();
+    setLoading(false);
+    setLoadError(null);
+  };
+
   const filteredClients = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return ledger.clients;
-    return ledger.clients.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.pan.toLowerCase().includes(q) ||
-        (c.phone || '').toLowerCase().includes(q) ||
-        (c.referenceNumber || '').toLowerCase().includes(q) ||
-        (c.remark || '').toLowerCase().includes(q)
-    );
+    if (!searchQuery.trim()) return ledger.clients;
+    return ledger.clients.filter((c) => matchesItClientSearch(c, searchQuery));
   }, [ledger.clients, searchQuery]);
 
   const filteredGstClients = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return ledger.gstClients;
-    return ledger.gstClients.filter(
-      (c) =>
-        c.companyName.toLowerCase().includes(q) ||
-        c.userId.toLowerCase().includes(q) ||
-        (c.phone || '').toLowerCase().includes(q) ||
-        (c.referenceNumber || '').toLowerCase().includes(q) ||
-        (c.remark || '').toLowerCase().includes(q)
+    if (!searchQuery.trim()) return ledger.gstClients;
+    return ledger.gstClients.filter((c) =>
+      matchesGstCompanySearch(c, searchQuery)
     );
   }, [ledger.gstClients, searchQuery]);
 
@@ -151,6 +240,7 @@ export default function App() {
     let outstandingTotal = 0;
     let totalBilled = 0;
     let totalEntries = 0;
+    let pendingPaymentsCount = 0;
 
     for (const c of ledger.clients) {
       const t = computeClientTotals(c);
@@ -159,9 +249,20 @@ export default function App() {
       for (const f of Object.values(c.filings || {})) {
         totalBilled += Number(f.fees) || 0;
         totalEntries += 1;
+        const bal =
+          typeof f.balance === 'number' && Number.isFinite(f.balance)
+            ? Math.max(0, f.balance)
+            : Math.max(0, (Number(f.fees) || 0) - (Number(f.received) || 0));
+        if (bal > 0) pendingPaymentsCount += 1;
       }
     }
-    return { totalReceived, outstandingTotal, totalBilled, totalEntries };
+    return {
+      totalReceived,
+      outstandingTotal,
+      totalBilled,
+      totalEntries,
+      pendingPaymentsCount,
+    };
   }, [ledger.clients]);
 
   const suggestedNextYear = useMemo(
@@ -169,36 +270,41 @@ export default function App() {
     [ledger.assessmentYears]
   );
 
-  const activeGstFy = currentGstFy;
+  const activeGstFy = selectedGstFy;
 
   const visibleGstMonths = useMemo(
     () => getMonthsForGstFinancialYear(activeGstFy),
     [activeGstFy]
   );
 
-  const gstTotalsSummary = useMemo(() => {
-    const monthSet = new Set(visibleGstMonths);
-    let totalReceived = 0;
-    let outstandingTotal = 0;
-    let totalBilled = 0;
-    let totalEntries = 0;
+  const gstFyOptions = useMemo(() => {
+    const fromLedger = collectGstFinancialYears([
+      ...ledger.gstMonths,
+      ...ledger.gstClients.flatMap((c) => Object.keys(c.filings || {})),
+    ]);
+    return sortGstFinancialYears([
+      ...new Set([currentGstFy, activeGstFy, ...fromLedger]),
+    ]);
+  }, [ledger.gstMonths, ledger.gstClients, currentGstFy, activeGstFy]);
 
+  const gstTotalsSummary = useMemo(() => {
+    const fy = computeGstFyDashboardTotals(ledger.gstClients, visibleGstMonths);
+    let pendingPaymentsCount = 0;
     for (const c of ledger.gstClients) {
-      const t = computeGstClientTotals(c);
-      totalReceived += t.totalReceived;
-      outstandingTotal += t.outstandingTotal;
-      for (const [month, filing] of Object.entries(c.filings || {})) {
-        if (!monthSet.has(month)) continue;
-        totalBilled +=
-          typeof filing.total === 'number' && Number.isFinite(filing.total)
-            ? Math.max(0, filing.total)
-            : Math.max(0, Number(filing.fees) || 0) +
-              Math.max(0, Number(filing.interest) || 0) +
-              Math.max(0, Number(filing.tax) || 0);
-        totalEntries += 1;
+      for (const m of visibleGstMonths) {
+        const f = c.filings?.[m];
+        if (!f) continue;
+        if (computeGstFilingOutstanding(f) > 0) pendingPaymentsCount += 1;
       }
     }
-    return { totalReceived, outstandingTotal, totalBilled, totalEntries };
+    return {
+      totalReceived: fy.totalReceived,
+      outstandingTotal: fy.totalOutstanding,
+      totalBilled: fy.totalBilled,
+      totalEntries: fy.totalEntries,
+      unallocatedReceived: fy.unallocatedReceived,
+      pendingPaymentsCount,
+    };
   }, [ledger.gstClients, visibleGstMonths]);
 
   const gstOverallTotalsSummary = useMemo(() => {
@@ -254,13 +360,15 @@ export default function App() {
     initialFiling?: FilingRecord;
   }) => {
     if (payload.id) {
-      const res = await fetch(`/api/clients/${payload.id}`, {
+      const res = await apiFetch(`/api/clients/${payload.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: payload.name,
           pan: payload.pan,
-          password: payload.password,
+          ...(payload.password.trim()
+            ? { password: payload.password }
+            : {}),
           phone: payload.phone,
           referenceNumber: payload.referenceNumber,
           remark: payload.remark,
@@ -275,7 +383,7 @@ export default function App() {
       if (payload.initialFiling) {
         filings[payload.initialFiling.assessmentYear] = payload.initialFiling;
       }
-      const res = await fetch('/api/clients', {
+      const res = await apiFetch('/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -297,7 +405,7 @@ export default function App() {
 
   const handleDeleteClient = async (clientId: string) => {
     try {
-      const res = await fetch(`/api/clients/${clientId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/clients/${clientId}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete client.');
       setLedger(data.ledger);
@@ -312,7 +420,7 @@ export default function App() {
   };
 
   const handleSaveFiling = async (clientId: string, filing: FilingRecord) => {
-    const res = await fetch(`/api/clients/${clientId}/filings`, {
+    const res = await apiFetch(`/api/clients/${clientId}/filings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(filing),
@@ -323,7 +431,7 @@ export default function App() {
   };
 
   const handleDeleteFiling = async (clientId: string, year: string) => {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/clients/${clientId}/filings/${encodeURIComponent(year)}`,
       { method: 'DELETE' }
     );
@@ -335,7 +443,7 @@ export default function App() {
   const handleAddYearColumn = async (rawLabel: string) => {
     const normalized = normalizeAssessmentYearLabel(rawLabel);
     if (!normalized) return;
-    const res = await fetch('/api/years', {
+    const res = await apiFetch('/api/years', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ year: normalized }),
@@ -377,6 +485,20 @@ export default function App() {
     return ledger.gstClients.find((c) => c.id === gstDrawerCompanyId) ?? null;
   }, [gstDrawerCompanyId, ledger.gstClients]);
 
+  const gstQuickEditLive = useMemo(() => {
+    if (!gstQuickEditTarget) return null;
+    const company =
+      ledger.gstClients.find((c) => c.id === gstQuickEditTarget.company.id) ??
+      gstQuickEditTarget.company;
+    const existing = company.filings?.[gstQuickEditTarget.month];
+    return {
+      company,
+      month: gstQuickEditTarget.month,
+      existing,
+      focus: gstQuickEditTarget.focus,
+    };
+  }, [gstQuickEditTarget, ledger.gstClients]);
+
   const handleSaveGstCompany = async (payload: {
     id?: string;
     companyName: string;
@@ -385,23 +507,21 @@ export default function App() {
     phone: string;
     referenceNumber: string;
     remark: string;
-    totalReceived?: number;
     initialFiling?: GstMonthlyFiling;
   }) => {
     if (payload.id) {
-      const res = await fetch(`/api/gst/clients/${payload.id}`, {
+      const res = await apiFetch(`/api/gst/clients/${payload.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyName: payload.companyName,
           userId: payload.userId,
-          password: payload.password,
+          ...(payload.password.trim()
+            ? { password: payload.password }
+            : {}),
           phone: payload.phone,
           referenceNumber: payload.referenceNumber,
           remark: payload.remark,
-          ...(payload.totalReceived !== undefined
-            ? { totalReceived: payload.totalReceived }
-            : {}),
         }),
       });
       const data = await res.json();
@@ -413,7 +533,7 @@ export default function App() {
       if (payload.initialFiling) {
         filings[payload.initialFiling.month] = payload.initialFiling;
       }
-      const res = await fetch('/api/gst/clients', {
+      const res = await apiFetch('/api/gst/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -435,7 +555,7 @@ export default function App() {
 
   const handleDeleteGstCompany = async (companyId: string) => {
     try {
-      const res = await fetch(`/api/gst/clients/${companyId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/gst/clients/${companyId}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete GST company.');
       setLedger(data.ledger);
@@ -450,7 +570,7 @@ export default function App() {
   };
 
   const handleSaveGstFiling = async (companyId: string, filing: GstMonthlyFiling) => {
-    const res = await fetch(`/api/gst/clients/${companyId}/filings`, {
+    const res = await apiFetch(`/api/gst/clients/${companyId}/filings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(filing),
@@ -461,7 +581,7 @@ export default function App() {
   };
 
   const handleDeleteGstFiling = async (companyId: string, month: string) => {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/gst/clients/${companyId}/filings/${encodeURIComponent(month)}`,
       { method: 'DELETE' }
     );
@@ -470,10 +590,90 @@ export default function App() {
     setLedger(data.ledger);
   };
 
+  const handleRecordGstPayment = async (
+    companyId: string,
+    month: string,
+    payment: {
+      amount: number;
+      paymentDate: string;
+      paymentMode: string;
+      reference?: string;
+      idempotencyKey?: string;
+    }
+  ) => {
+    const idempotencyKey =
+      payment.idempotencyKey?.trim() ||
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : (() => {
+            const bytes = new Uint8Array(16);
+            crypto.getRandomValues(bytes);
+            return `idem-${Array.from(bytes, (b) =>
+              b.toString(16).padStart(2, '0')
+            ).join('')}`;
+          })());
+    const body = { ...payment, idempotencyKey };
+    const res = await apiFetch(
+      `/api/gst/clients/${companyId}/filings/${encodeURIComponent(month)}/payments`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify(body),
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to record payment.');
+    setLedger(data.ledger);
+    showToast('success', 'Payment recorded.');
+  };
+
+  const handleUpdateGstPayment = async (
+    companyId: string,
+    month: string,
+    paymentId: string,
+    payment: {
+      amount: number;
+      paymentDate: string;
+      paymentMode: string;
+      reference?: string;
+    }
+  ) => {
+    const res = await apiFetch(
+      `/api/gst/clients/${companyId}/filings/${encodeURIComponent(month)}/payments/${encodeURIComponent(paymentId)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payment),
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to update payment.');
+    setLedger(data.ledger);
+    showToast('success', 'Payment updated.');
+  };
+
+  const handleDeleteGstPayment = async (
+    companyId: string,
+    month: string,
+    paymentId: string
+  ) => {
+    const res = await apiFetch(
+      `/api/gst/clients/${companyId}/filings/${encodeURIComponent(month)}/payments/${encodeURIComponent(paymentId)}`,
+      { method: 'DELETE' }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to delete payment.');
+    setLedger(data.ledger);
+    showToast('success', 'Payment deleted.');
+  };
+
   const handleAddMonthColumn = async (rawLabel: string) => {
     const normalized = normalizeGstMonthLabel(rawLabel);
     if (!normalized) return;
-    const res = await fetch('/api/gst/months', {
+    const res = await apiFetch('/api/gst/months', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ month: normalized }),
@@ -616,8 +816,22 @@ export default function App() {
         ? itTotalsSummary
         : gstTotalsSummary;
 
+  if (authStatus === 'checking') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--bg)] text-[var(--muted)] text-sm">
+        Checking session…
+      </div>
+    );
+  }
+
+  if (authStatus === 'loggedOut') {
+    return <LoginPage onSuccess={handleLoginSuccess} />;
+  }
+
+  const viewKey = `${mainSection}-${activeTab}-${dataViewMode}`;
+
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--ink)] flex flex-col lg:flex-row">
+    <div className="h-dvh max-h-dvh bg-[var(--bg)] text-[var(--ink)] flex flex-col lg:flex-row overflow-hidden">
       <MobileHeader
         mainSection={mainSection}
         activeTab={activeTab}
@@ -637,17 +851,25 @@ export default function App() {
         onOpenDataTransfer={() => setTransferOpen(true)}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
+        userEmail={userEmail}
+        onLogout={() => void handleLogout()}
       />
 
-      <main
-        className={`flex-1 min-w-0 w-full mx-auto py-4 space-y-4 ${
-          activeTab === 'year-summary'
-            ? 'max-w-[1280px] px-3 sm:px-4 lg:px-2'
-            : 'max-w-[1680px] px-3 sm:px-5 lg:px-5'
-        }`}
-      >
+      <main className="relative z-0 flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain pb-[calc(4.25rem+env(safe-area-inset-bottom,0px))] lg:pb-0">
+        <div
+          className={`mx-auto w-full py-4 space-y-4 ${
+            activeTab === 'year-summary'
+              ? 'max-w-[1280px] px-3 sm:px-4 lg:px-4'
+              : 'max-w-[1680px] px-3 sm:px-5 lg:px-5'
+          }`}
+        >
         {activeTab !== 'year-summary' && (
-          <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+          <motion.header
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+            className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2"
+          >
             <div>
               <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-[var(--ink)]">
                 {viewHeading}
@@ -680,10 +902,11 @@ export default function App() {
                 )}
               </div>
             </div>
-          </header>
+          </motion.header>
         )}
 
         {activeTab !== 'year-summary' && (
+          <div className="hidden lg:block">
           <TopSummaryCards
             totalClients={
               mainSection === 'it'
@@ -699,6 +922,11 @@ export default function App() {
             outstandingTotal={totals.outstandingTotal}
             totalBilled={totals.totalBilled}
             totalEntries={totals.totalEntries}
+            pendingPaymentsCount={
+              'pendingPaymentsCount' in totals
+                ? totals.pendingPaymentsCount
+                : undefined
+            }
             entityPluralLabel={mainSection === 'it' ? 'Clients' : 'Companies'}
             entitySingularLabel={mainSection === 'it' ? 'client' : 'company'}
             periodPluralLabel={
@@ -706,6 +934,36 @@ export default function App() {
             }
             periodSingularLabel={
               mainSection === 'it' ? 'Assessment Year' : 'Month'
+            }
+            receivedTitle={
+              mainSection === 'gst'
+                ? 'Monthly collections'
+                : 'Collections received'
+            }
+            receivedScopeLabel={
+              mainSection === 'gst' ? activeGstFy : undefined
+            }
+            totalReceivedNote={
+              mainSection === 'gst'
+                ? gstTotalsSummary.unallocatedReceived > 0
+                  ? `${GST_FY_RECD_SCOPE_NOTE} ${gstFyUnallocatedSeparateNote(
+                      `₹${formatPlainNumber(gstTotalsSummary.unallocatedReceived)}`
+                    )}`
+                  : GST_FY_RECD_SCOPE_NOTE
+                : undefined
+            }
+          />
+          </div>
+        )}
+
+        {mainSection === 'gst' && activeTab !== 'year-summary' && (
+          <GstYearSelector
+            years={gstFyOptions}
+            selectedYear={activeGstFy}
+            currentYear={currentGstFy}
+            onChange={setSelectedGstFy}
+            onShiftYear={(delta) =>
+              setSelectedGstFy((prev) => shiftGstFinancialYear(prev, delta))
             }
           />
         )}
@@ -720,8 +978,8 @@ export default function App() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={
                   mainSection === 'it'
-                    ? 'Search clients by name, PAN, phone, ref…'
-                    : 'Search companies by name, user ID, phone, ref…'
+                    ? 'Search by name, PAN, phone, ref, or assessment year…'
+                    : 'Search by company, User ID / GSTIN, phone, ref, or filing month…'
                 }
                 className="w-full pl-9 pr-3 py-2.5 text-sm bg-[var(--card)] border border-[var(--line)] rounded-xl shadow-sm placeholder:text-[var(--sidebar-text)] focus:outline-none focus:ring-2 focus:ring-[var(--blue-500)]/30 focus:border-[var(--blue-500)]"
               />
@@ -750,7 +1008,7 @@ export default function App() {
                 role="tab"
                 aria-selected={dataViewMode === 'sheet'}
                 onClick={() => setDataViewMode('sheet')}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg cursor-pointer transition-colors ${
+                className={`hidden lg:inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg cursor-pointer transition-colors ${
                   dataViewMode === 'sheet'
                     ? 'bg-[var(--navy-900)] text-white'
                     : 'text-[var(--muted)] hover:bg-[var(--frost-100)]'
@@ -780,7 +1038,10 @@ export default function App() {
               Retry
             </button>
           </div>
-        ) : activeTab === 'year-summary' ? (
+        ) : (
+        <AnimatePresence mode="wait">
+        <PageFade id={viewKey}>
+        {activeTab === 'year-summary' ? (
           <OverallDashboard
             itClients={ledger.clients}
             assessmentYears={ledger.assessmentYears}
@@ -803,8 +1064,8 @@ export default function App() {
                 onDeleteClient={handleDeleteClient}
                 onSaveFiling={handleSaveFiling}
                 onDeleteFiling={handleDeleteFiling}
-                onOpenQuickEdit={(client, year, existing) =>
-                  setQuickEditTarget({ client, year, existing })
+                onOpenQuickEdit={(client, year, existing, focus) =>
+                  setQuickEditTarget({ client, year, existing, focus })
                 }
                 onAddClientClick={() => {
                   setClientModalOpen(true);
@@ -822,6 +1083,7 @@ export default function App() {
                 onDeleteClient={handleDeleteClient}
                 onAddYearColumn={handleAddYearColumn}
                 suggestedNextYear={suggestedNextYear}
+                onPreferSimpleView={() => setDataViewMode('simple')}
                 onAddClientClick={() => {
                   setClientModalOpen(true);
                 }}
@@ -850,8 +1112,8 @@ export default function App() {
               onDeleteCompany={handleDeleteGstCompany}
               onSaveFiling={handleSaveGstFiling}
               onDeleteFiling={handleDeleteGstFiling}
-              onOpenQuickEdit={(company, month, existing) =>
-                setGstQuickEditTarget({ company, month, existing })
+              onOpenQuickEdit={(company, month, existing, focus) =>
+                setGstQuickEditTarget({ company, month, existing, focus })
               }
               onAddCompanyClick={() => {
                 setGstCompanyModalOpen(true);
@@ -871,6 +1133,7 @@ export default function App() {
               onDeleteCompany={handleDeleteGstCompany}
               onAddMonthColumn={handleAddMonthColumn}
               suggestedNextMonth={suggestedNextMonth}
+              onPreferSimpleView={() => setDataViewMode('simple')}
               onAddCompanyClick={() => {
                 setGstCompanyModalOpen(true);
               }}
@@ -882,6 +1145,10 @@ export default function App() {
             months={visibleGstMonths}
           />
         )}
+        </PageFade>
+        </AnimatePresence>
+        )}
+        </div>
       </main>
 
       {/* IT Modals / Drawer */}
@@ -940,10 +1207,13 @@ export default function App() {
       />
 
       <GstFilingQuickModal
-        target={gstQuickEditTarget}
+        target={gstQuickEditLive}
         onClose={() => setGstQuickEditTarget(null)}
         onSave={handleSaveGstFiling}
         onDelete={handleDeleteGstFiling}
+        onRecordPayment={handleRecordGstPayment}
+        onUpdatePayment={handleUpdateGstPayment}
+        onDeletePayment={handleDeleteGstPayment}
       />
 
       <DataTransferModal
@@ -952,6 +1222,41 @@ export default function App() {
         ledger={ledger}
         initialDomain={mainSection}
         onImported={(next) => setLedger(next)}
+      />
+
+      <MobileBottomNav
+        mainSection={mainSection}
+        activeTab={activeTab}
+        moreOpen={mobileMoreOpen}
+        onSelectDashboard={() => {
+          setMobileMoreOpen(false);
+          setActiveTab('year-summary');
+        }}
+        onSelectIt={() => {
+          setMobileMoreOpen(false);
+          setMainSection('it');
+          setActiveTab('all-data');
+        }}
+        onSelectGst={() => {
+          setMobileMoreOpen(false);
+          handleSectionChange('gst');
+          setActiveTab('all-data');
+        }}
+        onSelectMore={() => setMobileMoreOpen((v) => !v)}
+      />
+
+      <MobileMoreSheet
+        open={mobileMoreOpen}
+        onClose={() => setMobileMoreOpen(false)}
+        mainSection={mainSection}
+        userEmail={userEmail}
+        onGoTab={(section, tab) => {
+          handleSectionChange(section);
+          setActiveTab(tab);
+        }}
+        onOpenDataTransfer={() => setTransferOpen(true)}
+        onExportCsv={handleExportCsv}
+        onLogout={() => void handleLogout()}
       />
 
       <ToastBanner toast={toast} onClose={() => setToast(null)} />

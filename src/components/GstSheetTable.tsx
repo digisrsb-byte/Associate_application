@@ -1,26 +1,40 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   CalendarPlus,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Copy,
-  Eye,
-  EyeOff,
   LayoutGrid,
   Plus,
-  RotateCcw,
 } from 'lucide-react';
 import type { GstClientRecord, GstMonthlyFiling } from '../types/ledger.ts';
 import {
   computeGstClientTotals,
-  computeGstFilingTotal,
+  computeGstFilingOutstanding,
+  computeGstFilingReceived,
   extractMonthOrderKey,
   formatPlainNumber,
+  getGstFilingCollectibleTotal,
+  gstFilingHasOverReceipt,
   sortGstMonths,
 } from '../utils/ledgerUtils.ts';
+import {
+  GST_OUTSTANDING_UNALLOCATED_EXPLAIN,
+  GST_UNALLOCATED_LABEL,
+} from '../utils/gstCopy.ts';
 import { CompanyRowMenu } from './CompanyRowMenu.tsx';
+import { PortalPasswordCell } from './PortalPasswordCell.tsx';
+import {
+  BottomPeriodNavigator,
+  TopPeriodNavigator,
+} from './shared/PeriodNavigator.tsx';
+import {
+  SheetTableToolbar,
+  TableFooterBar,
+} from './shared/SheetTableToolbar.tsx';
+import { TABLE_FOCUS_RING } from './shared/tableStyles.ts';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
+import { MobileSheetUnavailable } from './mobile/MobileSheetUnavailable.tsx';
 
 interface GstSheetTableProps {
   clients: GstClientRecord[];
@@ -32,6 +46,8 @@ interface GstSheetTableProps {
   onAddMonthColumn: (monthLabel: string) => Promise<void>;
   suggestedNextMonth: string;
   onAddCompanyClick: () => void;
+  /** Switch to Simple / mobile list when Sheet View is selected on a narrow screen. */
+  onPreferSimpleView?: () => void;
 }
 
 const MONTH_SHORT = [
@@ -62,14 +78,7 @@ function resolveCurrentGstMonth(months: string[], now = new Date()): string {
 }
 
 function getFilingTotal(f: GstMonthlyFiling): number {
-  if (typeof f.total === 'number' && Number.isFinite(f.total)) {
-    return Math.max(0, f.total);
-  }
-  return computeGstFilingTotal(
-    Number(f.fees) || 0,
-    Number(f.interest) || 0,
-    Number(f.tax) || 0
-  );
+  return getGstFilingCollectibleTotal(f);
 }
 
 function shortMonthLabel(month: string): string {
@@ -78,11 +87,7 @@ function shortMonthLabel(month: string): string {
   return month;
 }
 
-const focusRing =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue-500)]';
-
-const pillBtn =
-  'inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[var(--ink)] bg-[var(--card)] border border-[var(--line)] rounded-full hover:bg-[var(--frost-100)] cursor-pointer min-h-8 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm';
+const focusRing = TABLE_FOCUS_RING;
 
 export function GstSheetTable({
   clients,
@@ -94,8 +99,10 @@ export function GstSheetTable({
   onAddMonthColumn,
   suggestedNextMonth,
   onAddCompanyClick,
+  onPreferSimpleView,
 }: GstSheetTableProps) {
-  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  const isCompact = useIsCompactLayout();
+  const uid = useId();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [addingMonth, setAddingMonth] = useState(false);
   const [newMonthInput, setNewMonthInput] = useState(suggestedNextMonth);
@@ -103,6 +110,7 @@ export function GstSheetTable({
   const [showAllMonths, setShowAllMonths] = useState(false);
   const [monthMenuOpen, setMonthMenuOpen] = useState(false);
   const monthMenuRef = useRef<HTMLDivElement | null>(null);
+  const newMonthInputRef = useRef<HTMLInputElement>(null);
 
   const sortedMonths = useMemo(() => sortGstMonths(months), [months]);
 
@@ -166,6 +174,14 @@ export function GstSheetTable({
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [monthMenuOpen]);
+
+  useEffect(() => {
+    if (!addingMonth) return;
+    const frame = window.requestAnimationFrame(() => {
+      newMonthInputRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [addingMonth]);
 
   const copyValue = async (key: string, value: string) => {
     try {
@@ -287,79 +303,46 @@ export function GstSheetTable({
   const nextMonth = canGoNext ? sortedMonths[activeMonthIndex + 1] : '';
 
   const topPeriodNav = (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="inline-flex items-center gap-1">
-        <button
-          type="button"
-          onClick={goPrev}
-          disabled={!canGoPrev || showAllMonths}
-          aria-label="Previous month"
-          className={`p-2 rounded-full border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${focusRing}`}
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-
-        {monthDropdown}
-
-        <button
-          type="button"
-          onClick={goNext}
-          disabled={!canGoNext || showAllMonths}
-          aria-label="Next month"
-          className={`p-2 rounded-full border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${focusRing}`}
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-
-      <button
-        type="button"
-        onClick={backToCurrent}
-        disabled={isViewingCurrent && !showAllMonths}
-        className={`${pillBtn} ${focusRing}`}
-      >
-        <RotateCcw className="w-3.5 h-3.5" />
-        <span>Current</span>
-      </button>
-
-      <button
-        type="button"
-        onClick={() => {
-          setShowAllMonths(true);
-          setMonthMenuOpen(false);
-        }}
-        aria-pressed={showAllMonths}
-        className={`${pillBtn} ${focusRing} ${
-          showAllMonths ? 'bg-[var(--navy-900)] text-white border-[var(--navy-900)] hover:bg-[var(--navy-700)]' : ''
-        }`}
-      >
-        <LayoutGrid className="w-3.5 h-3.5" />
-        <span>All months</span>
-      </button>
-    </div>
+    <TopPeriodNavigator
+      layout="inline"
+      canPrev={canGoPrev}
+      canNext={canGoNext}
+      showAll={showAllMonths}
+      isViewingCurrent={isViewingCurrent}
+      onPrev={goPrev}
+      onNext={goNext}
+      onCurrent={backToCurrent}
+      onShowAll={() => {
+        setShowAllMonths(true);
+        setMonthMenuOpen(false);
+      }}
+      prevAriaLabel="Previous month"
+      nextAriaLabel="Next month"
+      allLabel="All months"
+      periodSlot={monthDropdown}
+    />
   );
 
   const bottomPeriodNav = (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <button
-        type="button"
-        onClick={goPrev}
-        disabled={!canGoPrev || showAllMonths}
-        className={`${pillBtn} ${focusRing}`}
-      >
-        <span>‹ Previous{prevMonth ? ` · ${shortMonthLabel(prevMonth)}` : ''}</span>
-      </button>
-
-      <button
-        type="button"
-        onClick={goNext}
-        disabled={!canGoNext || showAllMonths}
-        className={`${pillBtn} ${focusRing}`}
-      >
-        <span>Next{nextMonth ? ` · ${shortMonthLabel(nextMonth)}` : ''} ›</span>
-      </button>
-    </div>
+    <BottomPeriodNavigator
+      canPrev={canGoPrev}
+      canNext={canGoNext}
+      showAll={showAllMonths}
+      onPrev={goPrev}
+      onNext={goNext}
+      prevText={`‹ Previous${prevMonth ? ` · ${shortMonthLabel(prevMonth)}` : ''}`}
+      nextText={`Next${nextMonth ? ` · ${shortMonthLabel(nextMonth)}` : ''} ›`}
+    />
   );
+
+  if (isCompact) {
+    return (
+      <MobileSheetUnavailable
+        title="GST Sheet View needs a desktop screen"
+        onUseMobileList={() => onPreferSimpleView?.()}
+      />
+    );
+  }
 
   if (clients.length === 0) {
     return (
@@ -382,56 +365,56 @@ export function GstSheetTable({
     );
   }
 
+  const addMonthTrailing = addingMonth ? (
+    <form onSubmit={handleConfirmAddMonth} className="flex items-center gap-1.5 ml-auto">
+      <label htmlFor={`${uid}-new-month`} className="sr-only">
+        New GST month
+      </label>
+      <input
+        id={`${uid}-new-month`}
+        ref={newMonthInputRef}
+        type="text"
+        value={newMonthInput}
+        onChange={(e) => setNewMonthInput(e.target.value)}
+        placeholder="Apr 2027"
+        className={`px-2.5 py-1.5 text-xs font-mono border border-[var(--line)] rounded-lg bg-[var(--card)] w-28 focus:outline-none focus:border-[var(--blue-500)] min-h-8 ${focusRing}`}
+      />
+      <button
+        type="submit"
+        disabled={savingMonth}
+        className={`px-3 py-1.5 text-xs font-bold bg-[var(--navy-900)] text-white rounded-lg hover:bg-[var(--navy-700)] cursor-pointer min-h-8 ${focusRing}`}
+      >
+        Add
+      </button>
+      <button
+        type="button"
+        onClick={() => setAddingMonth(false)}
+        className={`px-2 py-1.5 text-xs text-[var(--muted)] cursor-pointer min-h-8 ${focusRing}`}
+      >
+        Cancel
+      </button>
+    </form>
+  ) : (
+    <button
+      type="button"
+      onClick={() => {
+        setNewMonthInput(suggestedNextMonth);
+        setAddingMonth(true);
+      }}
+      className={`ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[var(--ink)] bg-[var(--card)] border border-[var(--line)] rounded-lg hover:bg-[var(--frost-100)] cursor-pointer min-h-8 ${focusRing}`}
+    >
+      <CalendarPlus className="w-3.5 h-3.5 text-[var(--blue-500)]" />
+      <span>New Month</span>
+    </button>
+  );
+
   return (
     <div className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[var(--line)] bg-[var(--frost-100)] space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {topPeriodNav}
-
-          {addingMonth ? (
-            <form onSubmit={handleConfirmAddMonth} className="flex items-center gap-1.5 ml-auto">
-              <input
-                type="text"
-                value={newMonthInput}
-                onChange={(e) => setNewMonthInput(e.target.value)}
-                placeholder="Apr 2027"
-                className={`px-2.5 py-1.5 text-xs font-mono border border-[var(--line)] rounded-lg bg-[var(--card)] w-28 focus:outline-none focus:border-[var(--blue-500)] min-h-8 ${focusRing}`}
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={savingMonth}
-                className={`px-3 py-1.5 text-xs font-bold bg-[var(--navy-900)] text-white rounded-lg hover:bg-[var(--navy-700)] cursor-pointer min-h-8 ${focusRing}`}
-              >
-                Add
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddingMonth(false)}
-                className={`px-2 py-1.5 text-xs text-[var(--muted)] cursor-pointer min-h-8 ${focusRing}`}
-              >
-                Cancel
-              </button>
-            </form>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setNewMonthInput(suggestedNextMonth);
-                setAddingMonth(true);
-              }}
-              className={`ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[var(--ink)] bg-[var(--card)] border border-[var(--line)] rounded-lg hover:bg-[var(--frost-100)] cursor-pointer min-h-8 ${focusRing}`}
-            >
-              <CalendarPlus className="w-3.5 h-3.5 text-[var(--blue-500)]" />
-              <span>New Month</span>
-            </button>
-          )}
-        </div>
-
-        <p className="text-[11px] text-[var(--muted)]">
-          Jump months from the dropdown, step with Previous / Next, or open All months.
-        </p>
-      </div>
+      <SheetTableToolbar
+        periodNav={topPeriodNav}
+        trailing={addMonthTrailing}
+        hint="Jump months from the dropdown, step with Previous / Next, or open All months."
+      />
 
       <div className="overflow-x-auto ledger-scroll">
         <table className="w-full border-collapse text-left text-xs">
@@ -470,11 +453,7 @@ export function GstSheetTable({
                       <span className="font-mono text-[11px]">{month}</span>
                       {isCurrentCol && (
                         <span
-                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide ${
-                            !showAllMonths
-                              ? 'bg-[var(--navy-900)] text-white'
-                              : 'bg-[var(--navy-900)] text-white'
-                          }`}
+                          className="px-1.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide bg-[var(--navy-900)] text-white"
                         >
                           CURRENT
                         </span>
@@ -498,7 +477,6 @@ export function GstSheetTable({
           <tbody className="divide-y divide-[var(--line)]">
             {clients.map((company) => {
               const totals = computeGstClientTotals(company);
-              const isRevealed = Boolean(revealedPasswords[company.id]);
 
               return (
                 <tr key={company.id} className="group hover:bg-[var(--frost-100)] align-top">
@@ -525,36 +503,11 @@ export function GstSheetTable({
                   </td>
 
                   <td className="px-3 py-3 border-r border-[var(--line)] whitespace-nowrap">
-                    <div className="inline-flex items-center gap-0.5 font-mono text-[var(--ink)]">
-                      <span className="min-w-[68px]">
-                        {isRevealed ? company.password : '••••••••'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setRevealedPasswords((p) => ({
-                            ...p,
-                            [company.id]: !p[company.id],
-                          }))
-                        }
-                        className={`p-1 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center ${focusRing}`}
-                        title={isRevealed ? 'Hide' : 'Show'}
-                      >
-                        {isRevealed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => copyValue(`gpwd-${company.id}`, company.password)}
-                        className={`p-1 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center ${focusRing}`}
-                        title="Copy Password"
-                      >
-                        {copiedKey === `gpwd-${company.id}` ? (
-                          <Check className="w-3 h-3 text-[var(--success)]" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                      </button>
-                    </div>
+                    <PortalPasswordCell
+                      kind="gst"
+                      id={company.id}
+                      hasPassword={!!company.hasPortalPassword}
+                    />
                   </td>
 
                   <td className="px-3 py-3 font-mono text-[var(--muted)] border-r border-[var(--line)] whitespace-nowrap">
@@ -616,6 +569,23 @@ export function GstSheetTable({
                                 ₹{formatPlainNumber(getFilingTotal(f))}
                               </span>
                             </div>
+                            <div className="flex justify-between">
+                              <span className="text-[var(--muted)]">recd</span>
+                              <span className="font-mono text-[var(--success)]">
+                                ₹{formatPlainNumber(computeGstFilingReceived(f))}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-[var(--muted)]">out</span>
+                              <span className="font-mono text-[var(--blue-500)]">
+                                ₹{formatPlainNumber(computeGstFilingOutstanding(f))}
+                              </span>
+                            </div>
+                            {gstFilingHasOverReceipt(f) && (
+                              <div className="text-[10px] text-amber-800 pt-0.5">
+                                Recd exceeds Total
+                              </div>
+                            )}
                           </button>
                         ) : (
                           <button
@@ -636,7 +606,13 @@ export function GstSheetTable({
                   })}
 
                   <td className="sticky right-[188px] z-10 bg-[var(--card)] group-hover:bg-[var(--frost-100)] px-2.5 py-3 text-right font-mono font-semibold text-sm text-[var(--success)] border-l border-r border-[var(--line)] tabular-nums whitespace-nowrap">
-                    ₹{formatPlainNumber(totals.totalReceived)}
+                    <div>₹{formatPlainNumber(totals.totalReceived)}</div>
+                    {totals.unallocatedReceived > 0 && (
+                      <div className="text-[10px] font-medium text-[var(--muted)] normal-case tracking-normal whitespace-normal">
+                        {GST_UNALLOCATED_LABEL} ₹
+                        {formatPlainNumber(totals.unallocatedReceived)}
+                      </div>
+                    )}
                   </td>
 
                   <td
@@ -644,7 +620,15 @@ export function GstSheetTable({
                       totals.outstandingTotal > 0 ? 'text-[var(--blue-500)]' : 'text-[var(--ink)]'
                     }`}
                   >
-                    ₹{formatPlainNumber(totals.outstandingTotal)}
+                    <div>₹{formatPlainNumber(totals.outstandingTotal)}</div>
+                    {totals.unallocatedReceived > 0 && (
+                      <div
+                        className="text-[10px] font-medium text-[var(--muted)] normal-case tracking-normal whitespace-normal text-right"
+                        title={GST_OUTSTANDING_UNALLOCATED_EXPLAIN}
+                      >
+                        Incl. unallocated in company total
+                      </div>
+                    )}
                   </td>
 
                   <td className="sticky right-0 z-10 has-[[aria-expanded=true]]:z-50 bg-[var(--card)] group-hover:bg-[var(--frost-100)] px-2.5 py-3 text-right whitespace-nowrap overflow-visible">
@@ -661,9 +645,7 @@ export function GstSheetTable({
         </table>
       </div>
 
-      <div className="px-4 py-3 border-t border-[var(--line)] bg-[var(--frost-100)]">
-        {bottomPeriodNav}
-      </div>
+      <TableFooterBar>{bottomPeriodNav}</TableFooterBar>
     </div>
   );
 }

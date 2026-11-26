@@ -1,16 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   CalendarPlus,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Copy,
-  Eye,
-  EyeOff,
   LayoutGrid,
   Plus,
-  RotateCcw,
 } from 'lucide-react';
 import type { ClientRecord, FilingRecord } from '../types/ledger.ts';
 import {
@@ -21,6 +16,18 @@ import {
   formatPlainNumber,
 } from '../utils/ledgerUtils.ts';
 import { CompanyRowMenu } from './CompanyRowMenu.tsx';
+import { PortalPasswordCell } from './PortalPasswordCell.tsx';
+import {
+  BottomPeriodNavigator,
+  TopPeriodNavigator,
+} from './shared/PeriodNavigator.tsx';
+import {
+  SheetTableToolbar,
+  TableFooterBar,
+} from './shared/SheetTableToolbar.tsx';
+import { TABLE_FOCUS_RING } from './shared/tableStyles.ts';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
+import { MobileSheetUnavailable } from './mobile/MobileSheetUnavailable.tsx';
 
 interface ContinuousSheetTableProps {
   clients: ClientRecord[];
@@ -32,6 +39,8 @@ interface ContinuousSheetTableProps {
   onAddYearColumn: (yearLabel: string) => Promise<void>;
   suggestedNextYear: string;
   onAddClientClick: () => void;
+  /** Switch to Simple / mobile list when Sheet View is selected on a narrow screen. */
+  onPreferSimpleView?: () => void;
 }
 
 function resolveCurrentAssessmentYear(years: string[], now = new Date()): string {
@@ -64,11 +73,7 @@ function shortAyLabel(year: string): string {
   return year.replace(/^AY\s+/i, '');
 }
 
-const focusRing =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue-500)]';
-
-const pillBtn =
-  'inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[var(--ink)] bg-[var(--card)] border border-[var(--line)] rounded-full hover:bg-[var(--frost-100)] cursor-pointer min-h-8 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm';
+const focusRing = TABLE_FOCUS_RING;
 
 export function ContinuousSheetTable({
   clients,
@@ -77,11 +82,13 @@ export function ContinuousSheetTable({
   onEditClient,
   onViewHistory,
   onDeleteClient,
+  onPreferSimpleView,
   onAddYearColumn,
   suggestedNextYear,
   onAddClientClick,
 }: ContinuousSheetTableProps) {
-  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  const isCompact = useIsCompactLayout();
+  const uid = useId();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [addingYear, setAddingYear] = useState(false);
   const [newYearInput, setNewYearInput] = useState(suggestedNextYear);
@@ -89,6 +96,7 @@ export function ContinuousSheetTable({
   const [showAllYears, setShowAllYears] = useState(false);
   const [yearMenuOpen, setYearMenuOpen] = useState(false);
   const yearMenuRef = useRef<HTMLDivElement | null>(null);
+  const newYearInputRef = useRef<HTMLInputElement>(null);
 
   const sortedYears = useMemo(
     () =>
@@ -158,6 +166,14 @@ export function ContinuousSheetTable({
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [yearMenuOpen]);
+
+  useEffect(() => {
+    if (!addingYear) return;
+    const frame = window.requestAnimationFrame(() => {
+      newYearInputRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [addingYear]);
 
   const copyValue = async (key: string, value: string) => {
     try {
@@ -277,79 +293,46 @@ export function ContinuousSheetTable({
   const nextYear = canGoNext ? sortedYears[activeYearIndex + 1] : '';
 
   const topPeriodNav = (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="inline-flex items-center gap-1">
-        <button
-          type="button"
-          onClick={goPrev}
-          disabled={!canGoPrev || showAllYears}
-          aria-label="Previous year"
-          className={`p-2 rounded-full border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${focusRing}`}
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-
-        {yearDropdown}
-
-        <button
-          type="button"
-          onClick={goNext}
-          disabled={!canGoNext || showAllYears}
-          aria-label="Next year"
-          className={`p-2 rounded-full border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${focusRing}`}
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-
-      <button
-        type="button"
-        onClick={backToCurrent}
-        disabled={isViewingCurrent && !showAllYears}
-        className={`${pillBtn} ${focusRing}`}
-      >
-        <RotateCcw className="w-3.5 h-3.5" />
-        <span>Current</span>
-      </button>
-
-      <button
-        type="button"
-        onClick={() => {
-          setShowAllYears(true);
-          setYearMenuOpen(false);
-        }}
-        aria-pressed={showAllYears}
-        className={`${pillBtn} ${focusRing} ${
-          showAllYears ? 'bg-[var(--navy-900)] text-white border-[var(--navy-900)] hover:bg-[var(--navy-700)]' : ''
-        }`}
-      >
-        <LayoutGrid className="w-3.5 h-3.5" />
-        <span>All years</span>
-      </button>
-    </div>
+    <TopPeriodNavigator
+      layout="inline"
+      canPrev={canGoPrev}
+      canNext={canGoNext}
+      showAll={showAllYears}
+      isViewingCurrent={isViewingCurrent}
+      onPrev={goPrev}
+      onNext={goNext}
+      onCurrent={backToCurrent}
+      onShowAll={() => {
+        setShowAllYears(true);
+        setYearMenuOpen(false);
+      }}
+      prevAriaLabel="Previous year"
+      nextAriaLabel="Next year"
+      allLabel="All years"
+      periodSlot={yearDropdown}
+    />
   );
 
   const bottomPeriodNav = (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <button
-        type="button"
-        onClick={goPrev}
-        disabled={!canGoPrev || showAllYears}
-        className={`${pillBtn} ${focusRing}`}
-      >
-        <span>‹ Previous{prevYear ? ` · ${shortAyLabel(prevYear)}` : ''}</span>
-      </button>
-
-      <button
-        type="button"
-        onClick={goNext}
-        disabled={!canGoNext || showAllYears}
-        className={`${pillBtn} ${focusRing}`}
-      >
-        <span>Next{nextYear ? ` · ${shortAyLabel(nextYear)}` : ''} ›</span>
-      </button>
-    </div>
+    <BottomPeriodNavigator
+      canPrev={canGoPrev}
+      canNext={canGoNext}
+      showAll={showAllYears}
+      onPrev={goPrev}
+      onNext={goNext}
+      prevText={`‹ Previous${prevYear ? ` · ${shortAyLabel(prevYear)}` : ''}`}
+      nextText={`Next${nextYear ? ` · ${shortAyLabel(nextYear)}` : ''} ›`}
+    />
   );
+
+  if (isCompact) {
+    return (
+      <MobileSheetUnavailable
+        title="IT Sheet View needs a desktop screen"
+        onUseMobileList={() => onPreferSimpleView?.()}
+      />
+    );
+  }
 
   if (clients.length === 0) {
     return (
@@ -372,56 +355,56 @@ export function ContinuousSheetTable({
     );
   }
 
+  const addYearTrailing = addingYear ? (
+    <form onSubmit={handleConfirmAddYear} className="flex items-center gap-1.5 ml-auto">
+      <label htmlFor={`${uid}-new-year`} className="sr-only">
+        New assessment year
+      </label>
+      <input
+        id={`${uid}-new-year`}
+        ref={newYearInputRef}
+        type="text"
+        value={newYearInput}
+        onChange={(e) => setNewYearInput(e.target.value)}
+        placeholder="AY 2027-28"
+        className={`px-2.5 py-1.5 text-xs font-mono border border-[var(--line)] rounded-lg bg-[var(--card)] w-28 focus:outline-none focus:border-[var(--blue-500)] min-h-8 ${focusRing}`}
+      />
+      <button
+        type="submit"
+        disabled={savingYear}
+        className={`px-3 py-1.5 text-xs font-bold bg-[var(--navy-900)] text-white rounded-lg hover:bg-[var(--navy-700)] cursor-pointer min-h-8 ${focusRing}`}
+      >
+        Add
+      </button>
+      <button
+        type="button"
+        onClick={() => setAddingYear(false)}
+        className={`px-2 py-1.5 text-xs text-[var(--muted)] cursor-pointer min-h-8 ${focusRing}`}
+      >
+        Cancel
+      </button>
+    </form>
+  ) : (
+    <button
+      type="button"
+      onClick={() => {
+        setNewYearInput(suggestedNextYear);
+        setAddingYear(true);
+      }}
+      className={`ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[var(--ink)] bg-[var(--card)] border border-[var(--line)] rounded-lg hover:bg-[var(--frost-100)] cursor-pointer min-h-8 ${focusRing}`}
+    >
+      <CalendarPlus className="w-3.5 h-3.5 text-[var(--blue-500)]" />
+      <span>New Year</span>
+    </button>
+  );
+
   return (
     <div className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[var(--line)] bg-[var(--frost-100)] space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {topPeriodNav}
-
-          {addingYear ? (
-            <form onSubmit={handleConfirmAddYear} className="flex items-center gap-1.5 ml-auto">
-              <input
-                type="text"
-                value={newYearInput}
-                onChange={(e) => setNewYearInput(e.target.value)}
-                placeholder="AY 2027-28"
-                className={`px-2.5 py-1.5 text-xs font-mono border border-[var(--line)] rounded-lg bg-[var(--card)] w-28 focus:outline-none focus:border-[var(--blue-500)] min-h-8 ${focusRing}`}
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={savingYear}
-                className={`px-3 py-1.5 text-xs font-bold bg-[var(--navy-900)] text-white rounded-lg hover:bg-[var(--navy-700)] cursor-pointer min-h-8 ${focusRing}`}
-              >
-                Add
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddingYear(false)}
-                className={`px-2 py-1.5 text-xs text-[var(--muted)] cursor-pointer min-h-8 ${focusRing}`}
-              >
-                Cancel
-              </button>
-            </form>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setNewYearInput(suggestedNextYear);
-                setAddingYear(true);
-              }}
-              className={`ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[var(--ink)] bg-[var(--card)] border border-[var(--line)] rounded-lg hover:bg-[var(--frost-100)] cursor-pointer min-h-8 ${focusRing}`}
-            >
-              <CalendarPlus className="w-3.5 h-3.5 text-[var(--blue-500)]" />
-              <span>New Year</span>
-            </button>
-          )}
-        </div>
-
-        <p className="text-[11px] text-[var(--muted)]">
-          Jump years from the dropdown, step with Previous / Next, or open All years.
-        </p>
-      </div>
+      <SheetTableToolbar
+        periodNav={topPeriodNav}
+        trailing={addYearTrailing}
+        hint="Jump years from the dropdown, step with Previous / Next, or open All years."
+      />
 
       <div className="overflow-x-auto ledger-scroll">
         <table className="w-full border-collapse text-left text-xs">
@@ -453,20 +436,14 @@ export function ContinuousSheetTable({
                     className={`px-2.5 py-2 font-medium border-r min-w-[152px] whitespace-nowrap ${
                       isCurrentCol && !showAllYears
                         ? 'bg-[var(--navy-900)] text-white border-[var(--gold)]'
-                        : isCurrentCol
-                          ? 'bg-[var(--navy-700)] text-[var(--sidebar-text)] border-white/15'
-                          : 'bg-[var(--navy-700)] text-[var(--sidebar-text)] border-white/15'
+                        : 'bg-[var(--navy-700)] text-[var(--sidebar-text)] border-white/15'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-[11px]">{year}</span>
                       {isCurrentCol && (
                         <span
-                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide ${
-                            !showAllYears
-                              ? 'bg-[var(--navy-900)] text-white'
-                              : 'bg-[var(--navy-900)] text-white'
-                          }`}
+                          className="px-1.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide bg-[var(--navy-900)] text-white"
                         >
                           CURRENT
                         </span>
@@ -490,7 +467,6 @@ export function ContinuousSheetTable({
           <tbody className="divide-y divide-[var(--line)]">
             {clients.map((client) => {
               const totals = computeClientTotals(client);
-              const isRevealed = Boolean(revealedPasswords[client.id]);
 
               return (
                 <tr key={client.id} className="group hover:bg-[var(--frost-100)] align-top">
@@ -517,36 +493,11 @@ export function ContinuousSheetTable({
                   </td>
 
                   <td className="px-3 py-3 border-r border-[var(--line)] whitespace-nowrap">
-                    <div className="inline-flex items-center gap-0.5 font-mono text-[var(--ink)]">
-                      <span className="min-w-[68px]">
-                        {isRevealed ? client.password : '••••••••'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setRevealedPasswords((p) => ({
-                            ...p,
-                            [client.id]: !p[client.id],
-                          }))
-                        }
-                        className={`p-1 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center ${focusRing}`}
-                        title={isRevealed ? 'Hide' : 'Show'}
-                      >
-                        {isRevealed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => copyValue(`pwd-${client.id}`, client.password)}
-                        className={`p-1 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center ${focusRing}`}
-                        title="Copy Password"
-                      >
-                        {copiedKey === `pwd-${client.id}` ? (
-                          <Check className="w-3 h-3 text-[var(--success)]" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                      </button>
-                    </div>
+                    <PortalPasswordCell
+                      kind="it"
+                      id={client.id}
+                      hasPassword={!!client.hasPortalPassword}
+                    />
                   </td>
 
                   <td className="px-3 py-3 font-mono text-[var(--muted)] border-r border-[var(--line)] whitespace-nowrap">
@@ -666,9 +617,7 @@ export function ContinuousSheetTable({
         </table>
       </div>
 
-      <div className="px-4 py-3 border-t border-[var(--line)] bg-[var(--frost-100)]">
-        {bottomPeriodNav}
-      </div>
+      <TableFooterBar>{bottomPeriodNav}</TableFooterBar>
     </div>
   );
 }

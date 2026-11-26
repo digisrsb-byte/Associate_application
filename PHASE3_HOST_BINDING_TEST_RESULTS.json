@@ -1,0 +1,44 @@
+{
+  "phase": 3,
+  "at": "2026-11-20T10:40:20.243Z",
+  "passed": 7,
+  "failed": 0,
+  "total": 7,
+  "results": [
+    {
+      "name": "Source defaults HOST to 127.0.0.1 (no silent 0.0.0.0 fallback)",
+      "pass": true,
+      "detail": "server.ts HOST + listen"
+    },
+    {
+      "name": ".env.example documents HOST=127.0.0.1",
+      "pass": true,
+      "detail": "HOST line present"
+    },
+    {
+      "name": "HOST=127.0.0.1 accepts local loopback access",
+      "pass": true,
+      "detail": "up=true local=200 localhost=200"
+    },
+    {
+      "name": "LAN access blocked when bound to loopback",
+      "pass": true,
+      "detail": "100.106.210.23:This operation was aborted; 192.168.29.177:This operation was aborted"
+    },
+    {
+      "name": "Custom PORT configuration works",
+      "pass": true,
+      "detail": "port=3452 status=200"
+    },
+    {
+      "name": "Primary UAT port 3000 reachable on localhost (if server running)",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "Primary UAT on :3000 not reachable via LAN IP",
+      "pass": true,
+      "detail": "100.106.210.23 → This operation was aborted"
+    }
+  ]
+}

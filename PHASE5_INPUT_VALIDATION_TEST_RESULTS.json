@@ -1,0 +1,89 @@
+{
+  "phase": 5,
+  "at": "2026-11-20T10:40:48.686Z",
+  "passed": 16,
+  "failed": 0,
+  "total": 16,
+  "results": [
+    {
+      "name": "Server health",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "Admin login",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "name": "PAN validation report available",
+      "pass": true,
+      "detail": "invalid=2 total=6"
+    },
+    {
+      "name": "PAN report does not modify ledger",
+      "pass": true,
+      "detail": "clients=6"
+    },
+    {
+      "name": "Valid PAN create (lowercase normalized)",
+      "pass": true,
+      "detail": "status=201 pan=AAAPA8356Z"
+    },
+    {
+      "name": "PAN with spaces trimmed/uppercased",
+      "pass": true,
+      "detail": "status=201 pan=BBBPB8385Y"
+    },
+    {
+      "name": "Reject invalid PAN (bad chars)",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "name": "Reject invalid PAN (wrong length)",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "name": "Reject invalid PAN (bad 4th char)",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "name": "Reject invalid PAN (empty)",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "name": "Duplicate PAN rejected",
+      "pass": true,
+      "detail": "status=409"
+    },
+    {
+      "name": "Excessively long name rejected",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "name": "Invalid phone rejected",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "name": "Import skips invalid PAN and reports it",
+      "pass": true,
+      "detail": "status=200 invalid=1 created=1"
+    },
+    {
+      "name": "Historical invalid PAN record preserved",
+      "pass": true,
+      "detail": "id=cli-bf18644b"
+    },
+    {
+      "name": "Client count restored after Phase 5 probes",
+      "pass": true,
+      "detail": "6->6"
+    }
+  ]
+}

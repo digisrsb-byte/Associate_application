@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { LedgerState } from '../types/ledger.ts';
+import { validatePanValue } from './fieldValidation.ts';
 import { sortAssessmentYears } from './ledgerUtils.ts';
 import {
   computeClientSummaries,
@@ -8,7 +9,6 @@ import {
 } from './summaryUtils.ts';
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
-const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const SHEET_NAMES = [
   'All Data',
   'Client Summary',
@@ -389,24 +389,18 @@ function parseAllDataSheet(
     }
     rowsRead += 1;
 
-    const pan = panRaw.toUpperCase();
-    if (!pan) {
+    const panRes = validatePanValue(panRaw, { required: true });
+    if (!panRes.ok) {
       rowsSkipped += 1;
       issues.push({
         level: 'skip',
         row: rowNumber,
-        message: 'Blank PAN / Client ID — row skipped',
+        pan: String(panRaw || '').trim().toUpperCase() || undefined,
+        message: `${panRes.error} — row skipped (structure check only; not verified with Income Tax Department).`,
       });
       return;
     }
-    if (!PAN_RE.test(pan)) {
-      issues.push({
-        level: 'warn',
-        row: rowNumber,
-        pan,
-        message: 'Non-standard PAN format — imported anyway',
-      });
-    }
+    const pan = panRes.pan;
 
     const ay = normalizeAy(ayRaw);
     if (!ay) {
@@ -554,23 +548,18 @@ function parseClientSummarySheet(
 
   sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     if (rowNumber === 1) return;
-    const pan = cellText(row.getCell(panCol).value).toUpperCase();
-    if (!pan) {
+    const panRaw = cellText(row.getCell(panCol).value);
+    const panRes = validatePanValue(panRaw, { required: true });
+    if (!panRes.ok) {
       issues.push({
         level: 'skip',
         row: rowNumber,
-        message: 'Client Summary row with blank PAN skipped',
+        pan: String(panRaw || '').trim().toUpperCase() || undefined,
+        message: `${panRes.error} — Client Summary row skipped (structure check only; not verified with Income Tax Department).`,
       });
       return;
     }
-    if (!PAN_RE.test(pan)) {
-      issues.push({
-        level: 'warn',
-        row: rowNumber,
-        pan,
-        message: 'Non-standard PAN in Client Summary — imported anyway',
-      });
-    }
+    const pan = panRes.pan;
 
     const name = nameCol ? cellText(row.getCell(nameCol).value) : '';
     const mobileUnwrapped = mobileCol
@@ -1097,7 +1086,7 @@ export function parseReviewNeeded(
     const first = (texts[0] || '').trim();
     const nonEmpty = texts.filter((t) => t && t.trim());
     if (!first && nonEmpty.length === 0) {
-      if (current && current.rows.length >= 0) {
+      if (current) {
         // blank row ends section
         sections.push(current);
         current = null;

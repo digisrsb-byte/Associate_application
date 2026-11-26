@@ -1,6 +1,12 @@
 import ExcelJS from 'exceljs';
 import type { ClientRecord, LedgerState } from '../types/ledger.ts';
+import {
+  isValidPanFormat,
+  normalizePanInput,
+  PAN_FORMAT_EXAMPLE,
+} from './fieldValidation.ts';
 import { sortAssessmentYears } from './ledgerUtils.ts';
+import { orderedWorkbookToBlob } from './excelWorkbookOrder.ts';
 import {
   computeClientSummaries,
   computeMobileSummaries,
@@ -113,7 +119,8 @@ function ayStartYear(ay: string): number {
 }
 
 function isValidPan(pan: string): boolean {
-  return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan.trim().toUpperCase());
+  // Same structure rules as create/update API (not ITD verification).
+  return isValidPanFormat(normalizePanInput(pan));
 }
 
 function isValidMobile(phone: string): boolean {
@@ -889,49 +896,15 @@ export async function buildWorkbookBlob(
   }
   writeNotes(content);
 
-  const desired = [
+  const blob = await orderedWorkbookToBlob(content, [
     'Year Summary',
     'All Data',
     'Client Summary',
     'Mobile Summary',
     'Review Needed',
     'Notes',
-  ].filter((n) => !!content.getWorksheet(n));
-
-  const orderedWb = new ExcelJS.Workbook();
-  orderedWb.calcProperties.fullCalcOnLoad = true;
-  orderedWb.creator = 'TaxLedger';
-
-  for (const name of desired) {
-    const src = content.getWorksheet(name);
-    if (!src) continue;
-    const dest = orderedWb.addWorksheet(name);
-    src.eachRow({ includeEmpty: true }, (row, rowNumber) => {
-      const newRow = dest.getRow(rowNumber);
-      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        const newCell = newRow.getCell(colNumber);
-        newCell.value = cell.value as ExcelJS.CellValue;
-        if (cell.numFmt) newCell.numFmt = cell.numFmt;
-        if (cell.font) newCell.font = { ...cell.font };
-        if (cell.fill) newCell.fill = cell.fill;
-        if (cell.alignment) newCell.alignment = { ...cell.alignment };
-      });
-      if (row.height) newRow.height = row.height;
-    });
-    src.columns.forEach((col, i) => {
-      if (col.width) dest.getColumn(i + 1).width = col.width;
-    });
-    if (src.autoFilter) dest.autoFilter = src.autoFilter;
-    if (src.views?.length) dest.views = [...src.views];
-  }
-
-  const buf = await orderedWb.xlsx.writeBuffer();
-  return {
-    blob: new Blob([buf], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    }),
-    forcedSheets,
-  };
+  ]);
+  return { blob, forcedSheets };
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
@@ -977,7 +950,8 @@ export async function buildImportTemplateBlob(
       {
         id: 'tpl-1',
         name: 'Sample Client',
-        pan: 'ABCDE1234F',
+        // Demo format example only — not a real or government-verified PAN.
+        pan: PAN_FORMAT_EXAMPLE,
         password: 'NOT SET',
         phone: '9876543210',
         referenceNumber: '',

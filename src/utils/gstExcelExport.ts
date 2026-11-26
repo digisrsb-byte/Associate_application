@@ -1,7 +1,10 @@
 import ExcelJS from 'exceljs';
 import type { GstClientRecord, LedgerState } from '../types/ledger.ts';
+import { orderedWorkbookToBlob } from './excelWorkbookOrder.ts';
 import {
   computeGstClientTotals,
+  computeGstFilingOutstanding,
+  computeGstFilingReceived,
   computeGstFilingTotal,
   sortGstMonths,
 } from './ledgerUtils.ts';
@@ -86,6 +89,8 @@ function writeGstAllData(
   months: string[]
 ): number {
   const sheet = wb.addWorksheet('All Data');
+  // Month Recd / Month Outstanding are per filing; Company Unallocated is company-level
+  // (not assigned to the month). Company Total Recd lives on Company Summary.
   const headers = [
     'Month',
     'Sl No',
@@ -99,10 +104,11 @@ function writeGstAllData(
     'Interest',
     'Tax',
     'Total',
-    'Total Recd',
-    'Outstanding',
+    'Month Recd',
+    'Company Unallocated Recd',
+    'Month Outstanding',
   ];
-  const widths = [12, 8, 32, 18, 14, 14, 14, 24, 12, 12, 12, 12, 14, 14];
+  const widths = [12, 8, 32, 18, 14, 14, 14, 24, 12, 12, 12, 12, 14, 18, 16];
   sheet.addRow(headers);
   styleHeaderRow(sheet.getRow(1));
   widths.forEach((w, i) => {
@@ -125,13 +131,15 @@ function writeGstAllData(
         typeof f.total === 'number' && Number.isFinite(f.total)
           ? Math.max(0, f.total)
           : computeGstFilingTotal(fees, interest, tax);
+      const monthRecd = computeGstFilingReceived(f);
+      const monthOutstanding = computeGstFilingOutstanding(f);
       const rowNum = rowCount + 2;
       const row = sheet.addRow([]);
       row.getCell(1).value = month;
       row.getCell(2).value = sl++;
       row.getCell(3).value = client.companyName;
       row.getCell(4).value = client.userId;
-      row.getCell(5).value = client.password || '';
+      row.getCell(5).value = '';
       setMobile(row.getCell(6), client.phone);
       row.getCell(7).value = client.referenceNumber || '';
       row.getCell(8).value = client.remark || '';
@@ -140,8 +148,9 @@ function writeGstAllData(
       setAmount(row.getCell(11), tax);
       formula(row.getCell(12), `I${rowNum}+J${rowNum}+K${rowNum}`, total);
       row.getCell(12).numFmt = AMOUNT_FMT;
-      setAmount(row.getCell(13), totals.totalReceived);
-      setAmount(row.getCell(14), totals.outstandingTotal);
+      setAmount(row.getCell(13), monthRecd);
+      setAmount(row.getCell(14), totals.unallocatedReceived);
+      setAmount(row.getCell(15), monthOutstanding);
       row.font = BODY_FONT;
       rowCount += 1;
     }
@@ -155,7 +164,7 @@ function writeGstAllData(
     row.getCell(2).value = sl++;
     row.getCell(3).value = client.companyName;
     row.getCell(4).value = client.userId;
-    row.getCell(5).value = client.password || '';
+    row.getCell(5).value = '';
     setMobile(row.getCell(6), client.phone);
     row.getCell(7).value = client.referenceNumber || '';
     row.getCell(8).value = client.remark || '';
@@ -163,14 +172,15 @@ function writeGstAllData(
     setAmount(row.getCell(10), 0);
     setAmount(row.getCell(11), 0);
     setAmount(row.getCell(12), 0);
-    setAmount(row.getCell(13), totals.totalReceived);
-    setAmount(row.getCell(14), totals.outstandingTotal);
+    setAmount(row.getCell(13), 0);
+    setAmount(row.getCell(14), totals.unallocatedReceived);
+    setAmount(row.getCell(15), totals.outstandingTotal);
     row.font = BODY_FONT;
     rowCount += 1;
   }
 
   const lastRow = Math.max(2, rowCount + 1);
-  sheet.autoFilter = { from: 'A1', to: `N${lastRow}` };
+  sheet.autoFilter = { from: 'A1', to: `O${lastRow}` };
   sheet.views = [{ state: 'frozen', xSplit: 3, ySplit: 1 }];
   applyBodyFont(sheet);
   return rowCount;
@@ -207,6 +217,7 @@ function writeGstSheetView(
     'Remark',
     ...sorted,
     'Total Recd',
+    'Unallocated Recd',
     'Outstanding',
   ];
   const headerRow = sheet.addRow(headers);
@@ -222,7 +233,7 @@ function writeGstSheetView(
     const feesRow = sheet.addRow([
       client.companyName,
       client.userId,
-      client.password || '',
+      '',
       client.phone || '',
       client.referenceNumber || '',
       client.remark || '',
@@ -230,8 +241,10 @@ function writeGstSheetView(
         filings[m] ? `Fees ${filings[m].fees ?? 0}` : ''
       ),
       totals.totalReceived,
+      totals.unallocatedReceived,
       totals.outstandingTotal,
     ]);
+    feesRow.getCell(headers.length - 2).numFmt = AMOUNT_FMT;
     feesRow.getCell(headers.length - 1).numFmt = AMOUNT_FMT;
     feesRow.getCell(headers.length).numFmt = AMOUNT_FMT;
     feesRow.font = BODY_FONT;
@@ -248,6 +261,7 @@ function writeGstSheetView(
       ),
       '',
       '',
+      '',
     ]);
     interRow.font = BODY_FONT;
 
@@ -259,6 +273,7 @@ function writeGstSheetView(
       '',
       '',
       ...sorted.map((m) => (filings[m] ? `Tax ${filings[m].tax ?? 0}` : '')),
+      '',
       '',
       '',
     ]);
@@ -276,8 +291,46 @@ function writeGstSheetView(
       ),
       '',
       '',
+      '',
     ]);
     totalRow.font = BODY_FONT;
+
+    // Month Recd / Out parity with UI Sheet cells (company totals stay on fees row)
+    const recdRow = sheet.addRow([
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ...sorted.map((m) =>
+        filings[m]
+          ? `Recd ${computeGstFilingReceived(filings[m])}`
+          : ''
+      ),
+      '',
+      '',
+      '',
+    ]);
+    recdRow.font = BODY_FONT;
+
+    const outRow = sheet.addRow([
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ...sorted.map((m) =>
+        filings[m]
+          ? `Out ${computeGstFilingOutstanding(filings[m])}`
+          : ''
+      ),
+      '',
+      '',
+      '',
+    ]);
+    outRow.font = BODY_FONT;
   }
 
   sheet.views = [{ state: 'frozen', xSplit: 2, ySplit: 2 }];
@@ -305,6 +358,7 @@ function writeGstCompanySummary(
     'Total Tax',
     'Total',
     'Total Recd',
+    'Unallocated Recd',
     'Outstanding',
   ];
   sheet.addRow(headers);
@@ -334,12 +388,13 @@ function writeGstCompanySummary(
     setAmount(row.getCell(base + 2), r.totalTax);
     setAmount(row.getCell(base + 3), r.totalBilled);
     setAmount(row.getCell(base + 4), r.totalReceived);
-    setAmount(row.getCell(base + 5), r.outstanding);
+    setAmount(row.getCell(base + 5), r.unallocatedReceived);
+    setAmount(row.getCell(base + 6), r.outstanding);
     row.font = BODY_FONT;
   });
 
   const lastRow = Math.max(2, summaries.length + 1);
-  const lastCol = 5 + sorted.length + 6;
+  const lastCol = 5 + sorted.length + 7;
   sheet.autoFilter = {
     from: { row: 1, column: 1 },
     to: { row: lastRow, column: lastCol },
@@ -444,45 +499,13 @@ export async function buildGstWorkbookBlob(
   if (flags.companySummary) writeGstCompanySummary(content, clients, months);
   writeGstNotes(content);
 
-  const desired = [
+  return orderedWorkbookToBlob(content, [
     'Month Summary',
     'All Data',
     'Sheet View',
     'Company Summary',
     'Notes',
-  ].filter((n) => !!content.getWorksheet(n));
-
-  const orderedWb = new ExcelJS.Workbook();
-  orderedWb.calcProperties.fullCalcOnLoad = true;
-  orderedWb.creator = 'TaxLedger';
-
-  for (const name of desired) {
-    const src = content.getWorksheet(name);
-    if (!src) continue;
-    const dest = orderedWb.addWorksheet(name);
-    src.eachRow({ includeEmpty: true }, (row, rowNumber) => {
-      const newRow = dest.getRow(rowNumber);
-      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        const newCell = newRow.getCell(colNumber);
-        newCell.value = cell.value as ExcelJS.CellValue;
-        if (cell.numFmt) newCell.numFmt = cell.numFmt;
-        if (cell.font) newCell.font = { ...cell.font };
-        if (cell.fill) newCell.fill = cell.fill;
-        if (cell.alignment) newCell.alignment = { ...cell.alignment };
-      });
-      if (row.height) newRow.height = row.height;
-    });
-    src.columns.forEach((col, i) => {
-      if (col.width) dest.getColumn(i + 1).width = col.width;
-    });
-    if (src.autoFilter) dest.autoFilter = src.autoFilter;
-    if (src.views?.length) dest.views = [...src.views];
-  }
-
-  const buf = await orderedWb.xlsx.writeBuffer();
-  return new Blob([buf], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
+  ]);
 }
 
 export function gstExportFilename(ledger: LedgerState): string {

@@ -1,0 +1,44 @@
+{
+  "assessmentYears": ["AY 2024-25"],
+  "gstMonths": ["Apr 2024"],
+  "clients": [],
+  "gstClients": [
+    {
+      "id": "gst-syn-bad-dup-idem",
+      "companyName": "Bad Dup Idempotency Co",
+      "userId": "syn.bad.idem",
+      "phone": "",
+      "referenceNumber": "",
+      "totalReceived": 30,
+      "filings": {
+        "Apr 2024": {
+          "month": "Apr 2024",
+          "fees": 100,
+          "interest": 0,
+          "tax": 0,
+          "total": 100,
+          "payments": [
+            {
+              "id": "pay-idem-1",
+              "amount": 10,
+              "paymentDate": "2024-04-01",
+              "paymentMode": "UPI",
+              "idempotencyKey": "same-key",
+              "createdAt": "2024-04-01T00:00:00.000Z"
+            },
+            {
+              "id": "pay-idem-2",
+              "amount": 20,
+              "paymentDate": "2024-04-02",
+              "paymentMode": "Cash",
+              "idempotencyKey": "same-key",
+              "createdAt": "2024-04-02T00:00:00.000Z"
+            }
+          ]
+        }
+      },
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-02T00:00:00.000Z"
+    }
+  ]
+}

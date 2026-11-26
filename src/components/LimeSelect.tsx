@@ -8,6 +8,7 @@ interface LimeSelectProps {
   value: string;
   options: readonly LimeSelectOption[] | LimeSelectOption[];
   onChange: (value: string) => void;
+  id?: string;
   ariaLabel?: string;
   className?: string;
   buttonClassName?: string;
@@ -31,6 +32,7 @@ export function LimeSelect({
   value,
   options,
   onChange,
+  id,
   ariaLabel = 'Select option',
   className = '',
   buttonClassName = '',
@@ -150,6 +152,7 @@ export function LimeSelect({
     <div className={`relative ${className}`} ref={rootRef}>
       <button
         ref={buttonRef}
+        id={id}
         type="button"
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}

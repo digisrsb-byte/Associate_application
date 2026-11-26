@@ -2,14 +2,10 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Copy,
-  Eye,
-  EyeOff,
   LayoutGrid,
   Plus,
-  RotateCcw,
 } from 'lucide-react';
 import type { ClientRecord, FilingRecord } from '../types/ledger.ts';
 import { PAYMENT_TYPES } from '../types/ledger.ts';
@@ -23,8 +19,25 @@ import {
   normalizeAssessmentYearLabel,
   sortAssessmentYears,
 } from '../utils/ledgerUtils.ts';
+import { PortalPasswordCell } from './PortalPasswordCell.tsx';
 import { CompanyRowMenu } from './CompanyRowMenu.tsx';
 import { LimeSelect } from './LimeSelect.tsx';
+import {
+  BottomPeriodNavigator,
+  TopPeriodNavigator,
+} from './shared/PeriodNavigator.tsx';
+import { TableFooterBar } from './shared/SheetTableToolbar.tsx';
+import { TABLE_FOCUS_RING } from './shared/tableStyles.ts';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
+import { ItClientMobileList } from './mobile/ItClientMobileList.tsx';
+import { ConfirmDangerButton } from './mobile/ConfirmDangerButton.tsx';
+import type { ItQuickEditFocus } from '../types/itUi.ts';
+import { PaymentStatusBadge } from './PaymentStatusBadge.tsx';
+import { PaymentStatusFilterChips } from './shared/PaymentStatusFilterChips.tsx';
+import {
+  classifyItFilingsStatus,
+  type PaymentStatusFilter,
+} from '../utils/paymentStatusUi.ts';
 
 interface SimpleClientTableProps {
   clients: ClientRecord[];
@@ -34,7 +47,12 @@ interface SimpleClientTableProps {
   onDeleteClient: (clientId: string) => Promise<void>;
   onSaveFiling: (clientId: string, filing: FilingRecord) => Promise<void>;
   onDeleteFiling: (clientId: string, year: string) => Promise<void>;
-  onOpenQuickEdit: (client: ClientRecord, year: string, existing?: FilingRecord) => void;
+  onOpenQuickEdit: (
+    client: ClientRecord,
+    year: string,
+    existing?: FilingRecord,
+    focus?: ItQuickEditFocus
+  ) => void;
   onAddClientClick: () => void;
 }
 
@@ -61,11 +79,7 @@ function shortAyLabel(year: string): string {
   return year.replace(/^AY\s+/i, '');
 }
 
-const focusRing =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--blue-500)]';
-
-const pillBtn =
-  'inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[var(--ink)] bg-[var(--card)] border border-[var(--line)] rounded-full hover:bg-[var(--frost-100)] cursor-pointer min-h-8 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm';
+const focusRing = TABLE_FOCUS_RING;
 
 export function SimpleClientTable({
   clients,
@@ -78,8 +92,8 @@ export function SimpleClientTable({
   onOpenQuickEdit,
   onAddClientClick,
 }: SimpleClientTableProps) {
+  const isCompact = useIsCompactLayout();
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
-  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [showAllYears, setShowAllYears] = useState(false);
   const [yearMenuOpen, setYearMenuOpen] = useState(false);
@@ -99,6 +113,99 @@ export function SimpleClientTable({
     >
   >({});
   const [savingClientId, setSavingClientId] = useState<string | null>(null);
+  /** Inline Fees/Received edits — key = `${clientId}::${year}`. */
+  const [moneyEdits, setMoneyEdits] = useState<
+    Record<string, { fees: string; received: string }>
+  >({});
+  const [savingMoneyKey, setSavingMoneyKey] = useState<string | null>(null);
+  const [paymentStatusFilter, setPaymentStatusFilter] =
+    useState<PaymentStatusFilter>('all');
+
+  const moneyKey = (clientId: string, year: string) => `${clientId}::${year}`;
+
+  const getMoneyEdit = (clientId: string, year: string, filing: FilingRecord) => {
+    const key = moneyKey(clientId, year);
+    return (
+      moneyEdits[key] ?? {
+        fees: String(filing.fees ?? 0),
+        received: String(filing.received ?? 0),
+      }
+    );
+  };
+
+  const updateMoneyEdit = (
+    clientId: string,
+    year: string,
+    filing: FilingRecord,
+    field: 'fees' | 'received',
+    value: string
+  ) => {
+    const key = moneyKey(clientId, year);
+    setMoneyEdits((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] ?? {
+          fees: String(filing.fees ?? 0),
+          received: String(filing.received ?? 0),
+        }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const isMoneyDirty = (
+    clientId: string,
+    year: string,
+    filing: FilingRecord
+  ) => {
+    const edit = moneyEdits[moneyKey(clientId, year)];
+    if (!edit) return false;
+    return (
+      Math.max(0, Number(edit.fees) || 0) !== Math.max(0, Number(filing.fees) || 0) ||
+      Math.max(0, Number(edit.received) || 0) !==
+        Math.max(0, Number(filing.received) || 0)
+    );
+  };
+
+  const handleSaveMoney = async (
+    client: ClientRecord,
+    year: string,
+    filing: FilingRecord,
+    override?: { fees: number; received: number }
+  ) => {
+    const edit = getMoneyEdit(client.id, year, filing);
+    const fees = override
+      ? override.fees
+      : Math.max(0, Number(edit.fees) || 0);
+    const received = override
+      ? override.received
+      : Math.max(0, Number(edit.received) || 0);
+    const key = moneyKey(client.id, year);
+    setSavingMoneyKey(key);
+    try {
+      await onSaveFiling(client.id, {
+        assessmentYear: year,
+        filingDate: filing.filingDate || '',
+        fees,
+        received,
+        balance: computeBalance(fees, received),
+        paymentType: filing.paymentType || 'GPay',
+        paymentReceiveDate: filing.paymentReceiveDate || '',
+      });
+      setMoneyEdits((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    } finally {
+      setSavingMoneyKey(null);
+    }
+  };
+
+  const inlineNumClass =
+    'w-[68px] px-1.5 py-1 text-[11px] font-mono text-right bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]';
+  const inlineDateClass =
+    'w-[114px] px-1.5 py-1 text-[11px] font-mono bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]';
 
   const sortedYears = useMemo(
     () => sortAssessmentYears(availableYears),
@@ -147,6 +254,28 @@ export function SimpleClientTable({
     }
     return due;
   }, [clients, sortedYears]);
+
+  const visibleYearsForStatus = useMemo(() => {
+    if (showAllYears) return sortedYears;
+    return activeYear ? [activeYear] : [];
+  }, [showAllYears, sortedYears, activeYear]);
+
+  const clientPaymentStatus = (client: ClientRecord) => {
+    const filings = visibleYearsForStatus
+      .map((y) => client.filings?.[y])
+      .filter(Boolean) as FilingRecord[];
+    return classifyItFilingsStatus(filings);
+  };
+
+  const visibleClients = useMemo(() => {
+    if (paymentStatusFilter === 'all') return clients;
+    return clients.filter((c) => {
+      const filings = visibleYearsForStatus
+        .map((y) => c.filings?.[y])
+        .filter(Boolean) as FilingRecord[];
+      return classifyItFilingsStatus(filings) === paymentStatusFilter;
+    });
+  }, [clients, paymentStatusFilter, visibleYearsForStatus]);
 
   useEffect(() => {
     if (!yearMenuOpen) return;
@@ -314,125 +443,129 @@ export function SimpleClientTable({
     );
   }
 
-  return (
-    <div className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-[var(--line)] bg-[var(--frost-100)] flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex items-center gap-1">
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={!canGoPrev || showAllYears}
-            aria-label="Previous year"
-            className={`p-2 rounded-full border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${focusRing}`}
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+  const yearDropdown = (
+    <div className="relative" ref={yearMenuRef}>
+      <button
+        type="button"
+        onClick={() => setYearMenuOpen((open) => !open)}
+        aria-expanded={yearMenuOpen}
+        aria-haspopup="listbox"
+        className={`inline-flex items-center gap-1.5 pl-4 pr-3 py-2 rounded-full bg-[var(--navy-900)] text-white text-xs font-bold font-mono min-h-8 cursor-pointer shadow-sm ${focusRing}`}
+      >
+        <span>{showAllYears ? 'All years' : shortAyLabel(activeYear) || '—'}</span>
+        <ChevronDown className="w-3.5 h-3.5" />
+      </button>
 
-          <div className="relative" ref={yearMenuRef}>
-            <button
-              type="button"
-              onClick={() => setYearMenuOpen((open) => !open)}
-              aria-expanded={yearMenuOpen}
-              aria-haspopup="listbox"
-              className={`inline-flex items-center gap-1.5 pl-4 pr-3 py-2 rounded-full bg-[var(--navy-900)] text-white text-xs font-bold font-mono min-h-8 cursor-pointer shadow-sm ${focusRing}`}
-            >
-              <span>{showAllYears ? 'All years' : shortAyLabel(activeYear) || '—'}</span>
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
-
-            {yearMenuOpen && (
-              <div
-                role="listbox"
-                aria-label="Assessment years"
-                className="absolute left-0 top-[calc(100%+6px)] z-40 w-[168px] rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-card overflow-hidden"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAllYears(true);
-                    setYearMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-left text-xs font-semibold text-[var(--ink)] hover:bg-[var(--frost-100)] border-b border-[var(--line)] cursor-pointer ${focusRing}`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5 text-[var(--muted)]" />
-                  <span>All years</span>
-                </button>
-
-                <div className="max-h-64 overflow-y-auto py-1.5 px-1.5">
-                  {yearsNewestFirst.map((year) => {
-                    const selected = !showAllYears && year === activeYear;
-                    const isNow = year === currentYear;
-                    const hasDue = yearsWithDue.has(year);
-                    return (
-                      <button
-                        key={year}
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        onClick={() => onYearSelect(year)}
-                        className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-left text-xs font-bold font-mono cursor-pointer ${focusRing} ${
-                          selected
-                            ? 'bg-[var(--navy-900)] text-white'
-                            : 'text-[var(--ink)] hover:bg-[var(--frost-100)]'
-                        }`}
-                      >
-                        <span>
-                          {shortAyLabel(year)}
-                          {isNow ? ' · now' : ''}
-                        </span>
-                        {hasDue && (
-                          <span
-                            className="w-2 h-2 rounded-full bg-[var(--danger)] shrink-0"
-                            aria-label="Has outstanding balance"
-                          />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={!canGoNext || showAllYears}
-            aria-label="Next year"
-            className={`p-2 rounded-full border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] hover:bg-[var(--frost-100)] cursor-pointer min-h-8 min-w-8 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${focusRing}`}
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="inline-flex items-center gap-2">
-          <button
-            type="button"
-            onClick={backToCurrent}
-            disabled={isViewingCurrent && !showAllYears}
-            className={`${pillBtn} ${focusRing}`}
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Current</span>
-          </button>
-
+      {yearMenuOpen && (
+        <div
+          role="listbox"
+          aria-label="Assessment years"
+          className="absolute left-0 top-[calc(100%+6px)] z-40 w-[168px] rounded-2xl border border-[var(--line)] bg-[var(--card)] shadow-card overflow-hidden"
+        >
           <button
             type="button"
             onClick={() => {
               setShowAllYears(true);
               setYearMenuOpen(false);
             }}
-            aria-pressed={showAllYears}
-            className={`${pillBtn} ${focusRing} ${
-              showAllYears ? 'bg-[var(--navy-900)] text-white border-[var(--navy-900)] hover:bg-[var(--navy-700)]' : ''
-            }`}
+            className={`w-full flex items-center gap-2 px-3.5 py-2.5 text-left text-xs font-semibold text-[var(--ink)] hover:bg-[var(--frost-100)] border-b border-[var(--line)] cursor-pointer ${focusRing}`}
           >
-            <LayoutGrid className="w-3.5 h-3.5" />
+            <LayoutGrid className="w-3.5 h-3.5 text-[var(--muted)]" />
             <span>All years</span>
           </button>
+
+          <div className="max-h-64 overflow-y-auto py-1.5 px-1.5">
+            {yearsNewestFirst.map((year) => {
+              const selected = !showAllYears && year === activeYear;
+              const isNow = year === currentYear;
+              const hasDue = yearsWithDue.has(year);
+              return (
+                <button
+                  key={year}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => onYearSelect(year)}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-left text-xs font-bold font-mono cursor-pointer ${focusRing} ${
+                    selected
+                      ? 'bg-[var(--navy-900)] text-white'
+                      : 'text-[var(--ink)] hover:bg-[var(--frost-100)]'
+                  }`}
+                >
+                  <span>
+                    {shortAyLabel(year)}
+                    {isNow ? ' · now' : ''}
+                  </span>
+                  {hasDue && (
+                    <span
+                      className="w-2 h-2 rounded-full bg-[var(--danger)] shrink-0"
+                      aria-label="Has outstanding balance"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-[var(--line)] bg-[var(--frost-100)] space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TopPeriodNavigator
+            layout="split"
+            canPrev={canGoPrev}
+            canNext={canGoNext}
+            showAll={showAllYears}
+            isViewingCurrent={isViewingCurrent}
+            onPrev={goPrev}
+            onNext={goNext}
+            onCurrent={backToCurrent}
+            onShowAll={() => {
+              setShowAllYears(true);
+              setYearMenuOpen(false);
+            }}
+            prevAriaLabel="Previous year"
+            nextAriaLabel="Next year"
+            allLabel="All years"
+            periodSlot={yearDropdown}
+          />
+        </div>
+        <PaymentStatusFilterChips
+          value={paymentStatusFilter}
+          onChange={setPaymentStatusFilter}
+        />
+        <p className="text-[11px] text-[var(--muted)]">
+          Period:{' '}
+          <span className="font-semibold text-[var(--ink)]">
+            {showAllYears ? 'All years' : activeYear || '—'}
+          </span>
+          {' · '}
+          Showing {visibleClients.length} of {clients.length} clients. Expand a
+          row to add a filing.
+        </p>
       </div>
 
+      {visibleClients.length === 0 ? (
+        <div className="px-6 py-10 text-center text-sm text-[var(--muted)]">
+          No clients match the selected period and payment status.
+        </div>
+      ) : isCompact ? (
+        <ItClientMobileList
+          clients={visibleClients}
+          availableYears={availableYears}
+          showAllYears={showAllYears}
+          activeYear={activeYear}
+          onEditClient={onEditClient}
+          onViewHistory={onViewHistory}
+          onDeleteClient={onDeleteClient}
+          onDeleteFiling={onDeleteFiling}
+          onOpenQuickEdit={onOpenQuickEdit}
+        />
+      ) : (
       <div className="overflow-x-auto ledger-scroll">
         <table className="w-full border-collapse text-left text-xs">
           <thead>
@@ -445,17 +578,23 @@ export function SimpleClientTable({
               <th className="px-2 py-3 font-medium whitespace-nowrap">Ref No</th>
               <th className="px-2 py-3 font-medium whitespace-nowrap">Remark</th>
               <th className="px-2 py-3 font-medium whitespace-nowrap">Years</th>
-              <th className="px-2 py-3 font-medium text-right whitespace-nowrap">Total Recd</th>
-              <th className="px-2 py-3 font-medium text-right whitespace-nowrap">Outstanding</th>
+              <th className="px-2 py-3 font-medium text-right whitespace-nowrap">
+                {showAllYears ? 'Total Recd' : 'Client Received (all years)'}
+              </th>
+              <th className="px-2 py-3 font-medium text-right whitespace-nowrap">
+                {showAllYears
+                  ? 'Outstanding'
+                  : 'Client Outstanding (all years)'}
+              </th>
               <th className="px-2.5 py-3 font-medium text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
 
           <tbody className="divide-y divide-[var(--line)]">
-            {clients.map((client) => {
+            {visibleClients.map((client) => {
               const isExpanded = Boolean(expandedIds[client.id]);
-              const isRevealed = Boolean(revealedPasswords[client.id]);
               const totals = computeClientTotals(client);
+              const payStatus = clientPaymentStatus(client);
               const allClientYears = sortAssessmentYears(Object.keys(client.filings || {}));
               const clientYears =
                 !showAllYears && activeYear
@@ -473,7 +612,7 @@ export function SimpleClientTable({
 
               return (
                 <Fragment key={client.id}>
-                  <tr className="group hover:bg-[var(--frost-100)] transition-colors">
+                  <tr className="group ledger-row-motion hover:bg-[var(--frost-100)]">
                     <td className="pl-2.5 pr-1 py-2.5 text-center">
                       <button
                         type="button"
@@ -518,40 +657,11 @@ export function SimpleClientTable({
                     </td>
 
                     <td className="px-2 py-2.5 whitespace-nowrap">
-                      <div className="inline-flex items-center gap-0.5 font-mono text-[11px] text-[var(--ink)]">
-                        <span className="max-w-[82px] truncate">
-                          {isRevealed ? client.password : '••••••••'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setRevealedPasswords((p) => ({
-                              ...p,
-                              [client.id]: !p[client.id],
-                            }))
-                          }
-                          className="p-0.5 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
-                          title={isRevealed ? 'Hide password' : 'Show password'}
-                        >
-                          {isRevealed ? (
-                            <EyeOff className="w-3 h-3" />
-                          ) : (
-                            <Eye className="w-3 h-3" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => copyValue(`pwd-${client.id}`, client.password)}
-                          className="p-0.5 text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
-                          title="Copy password"
-                        >
-                          {copiedKey === `pwd-${client.id}` ? (
-                            <Check className="w-3 h-3 text-[var(--success)]" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </button>
-                      </div>
+                      <PortalPasswordCell
+                        kind="it"
+                        id={client.id}
+                        hasPassword={!!client.hasPortalPassword}
+                      />
                     </td>
 
                     <td className="px-2 py-2.5 font-mono text-[11px] text-[var(--muted)] tabular-nums whitespace-nowrap">
@@ -590,7 +700,10 @@ export function SimpleClientTable({
                         totals.outstandingTotal > 0 ? 'text-[var(--blue-500)]' : 'text-[var(--ink)]'
                       }`}
                     >
-                      ₹{formatPlainNumber(totals.outstandingTotal)}
+                      <div className="inline-flex flex-col items-end gap-1">
+                        <span>₹{formatPlainNumber(totals.outstandingTotal)}</span>
+                        <PaymentStatusBadge status={payStatus} />
+                      </div>
                     </td>
 
                     <td className="px-2.5 py-2.5 text-right whitespace-nowrap overflow-visible">
@@ -607,6 +720,19 @@ export function SimpleClientTable({
                     <tr className="bg-[var(--frost-100)]">
                       <td colSpan={11} className="px-2.5 py-2.5 border-t border-[var(--line)]">
                         <div className="bg-[var(--card)] border border-[var(--line)] rounded-xl overflow-hidden shadow-xs">
+                          <p className="px-3 py-2 text-[11px] text-[var(--muted)] border-b border-[var(--line)] bg-[var(--frost-100)]">
+                            Edit{' '}
+                            <span className="font-semibold text-[var(--ink)]">Fees</span> and{' '}
+                            <span className="font-semibold text-[var(--ink)]">Received</span>{' '}
+                            inline — Balance updates live. Click{' '}
+                            <span className="font-semibold text-[var(--ink)]">Save</span> to
+                            keep amount changes. Use{' '}
+                            <span className="font-semibold text-[var(--ink)]">Receive due</span>{' '}
+                            to set Received = Fees. Use{' '}
+                            <span className="font-semibold text-[var(--ink)]">Pay</span> for
+                            payment date and type.
+                          </p>
+                          <div className="overflow-x-auto">
                           <table className="w-full border-collapse text-left text-[11px] sm:text-xs">
                             <thead>
                               <tr className="bg-[var(--navy-900)] text-white border-b border-[var(--line)]">
@@ -624,6 +750,13 @@ export function SimpleClientTable({
                             <tbody className="divide-y divide-[var(--line)]">
                               {clientYears.map((yr) => {
                                 const f = client.filings[yr];
+                                const edit = getMoneyEdit(client.id, yr, f);
+                                const liveFees = Math.max(0, Number(edit.fees) || 0);
+                                const liveRecd = Math.max(0, Number(edit.received) || 0);
+                                const liveBal = computeBalance(liveFees, liveRecd);
+                                const dirty = isMoneyDirty(client.id, yr, f);
+                                const rowSaving =
+                                  savingMoneyKey === moneyKey(client.id, yr);
                                 return (
                                   <tr key={yr} className="hover:bg-[var(--frost-100)]">
                                     <td className="px-2 py-2 font-mono font-semibold text-[var(--ink)] whitespace-nowrap">
@@ -632,18 +765,50 @@ export function SimpleClientTable({
                                     <td className="px-2 py-2 font-mono text-[var(--muted)] tabular-nums whitespace-nowrap">
                                       {formatDisplayDate(f.filingDate)}
                                     </td>
-                                    <td className="px-2 py-2 text-right font-mono text-[var(--ink)] tabular-nums whitespace-nowrap">
-                                      ₹{formatPlainNumber(f.fees)}
+                                    <td className="px-1.5 py-2 text-right">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        value={edit.fees}
+                                        onChange={(e) =>
+                                          updateMoneyEdit(
+                                            client.id,
+                                            yr,
+                                            f,
+                                            'fees',
+                                            e.target.value
+                                          )
+                                        }
+                                        className={inlineNumClass}
+                                        aria-label={`${yr} fees`}
+                                      />
                                     </td>
-                                    <td className="px-2 py-2 text-right font-mono font-medium text-[var(--success)] tabular-nums whitespace-nowrap">
-                                      ₹{formatPlainNumber(f.received)}
+                                    <td className="px-1.5 py-2 text-right">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        value={edit.received}
+                                        onChange={(e) =>
+                                          updateMoneyEdit(
+                                            client.id,
+                                            yr,
+                                            f,
+                                            'received',
+                                            e.target.value
+                                          )
+                                        }
+                                        className={inlineNumClass}
+                                        aria-label={`${yr} received`}
+                                      />
                                     </td>
                                     <td
                                       className={`px-2 py-2 text-right font-mono font-semibold tabular-nums whitespace-nowrap ${
-                                        f.balance > 0 ? 'text-[var(--blue-500)]' : 'text-[var(--muted)]'
+                                        liveBal > 0
+                                          ? 'text-[var(--blue-500)]'
+                                          : 'text-[var(--muted)]'
                                       }`}
                                     >
-                                      ₹{formatPlainNumber(f.balance)}
+                                      ₹{formatPlainNumber(liveBal)}
                                     </td>
                                     <td className="px-2 py-2 text-[var(--ink)] whitespace-nowrap">
                                       {f.paymentType || '—'}
@@ -652,20 +817,51 @@ export function SimpleClientTable({
                                       {formatDisplayDate(f.paymentReceiveDate)}
                                     </td>
                                     <td className="px-2 py-2 text-right whitespace-nowrap">
-                                      <button
-                                        type="button"
-                                        onClick={() => onOpenQuickEdit(client, yr, f)}
-                                        className="px-1.5 py-0.5 text-[11px] font-semibold text-[var(--ink)] hover:underline cursor-pointer"
-                                      >
-                                        Edit
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void onDeleteFiling(client.id, yr)}
-                                        className="px-1.5 py-0.5 text-[11px] text-[var(--danger)] hover:underline cursor-pointer"
-                                      >
-                                        Remove
-                                      </button>
+                                      <div className="inline-flex flex-col items-end gap-1">
+                                        {dirty ? (
+                                          <button
+                                            type="button"
+                                            disabled={rowSaving}
+                                            onClick={() =>
+                                              void handleSaveMoney(client, yr, f)
+                                            }
+                                            className="inline-flex items-center px-2.5 py-1 text-[11px] font-bold text-white bg-[var(--navy-900)] hover:bg-[var(--navy-700)] rounded-lg cursor-pointer disabled:opacity-60"
+                                          >
+                                            {rowSaving ? 'Saving…' : 'Save amounts'}
+                                          </button>
+                                        ) : null}
+                                        {liveBal > 0 ? (
+                                          <button
+                                            type="button"
+                                            disabled={rowSaving}
+                                            title="Set Received = Fees (clear outstanding)"
+                                            onClick={() =>
+                                              void handleSaveMoney(client, yr, f, {
+                                                fees: liveFees,
+                                                received: liveFees,
+                                              })
+                                            }
+                                            className="px-2 py-1 text-[11px] font-semibold text-[var(--success)] hover:underline cursor-pointer disabled:opacity-60"
+                                          >
+                                            Receive due
+                                          </button>
+                                        ) : null}
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            onOpenQuickEdit(client, yr, f, 'payment')
+                                          }
+                                          className="px-2 py-1 text-[11px] font-semibold text-[var(--blue-500)] hover:underline cursor-pointer"
+                                          title="Open payment date and type for this year"
+                                        >
+                                          Pay
+                                        </button>
+                                        <ConfirmDangerButton
+                                          label="Remove"
+                                          onConfirm={() => onDeleteFiling(client.id, yr)}
+                                          className="!min-h-8 text-[11px]"
+                                        />
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -689,7 +885,7 @@ export function SimpleClientTable({
                                     onChange={(e) =>
                                       updateDraft(client.id, 'filingDate', e.target.value)
                                     }
-                                    className="w-[114px] px-1.5 py-1 text-[11px] font-mono bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]"
+                                    className={inlineDateClass}
                                   />
                                 </td>
                                 <td className="px-1.5 py-2 text-right">
@@ -699,7 +895,7 @@ export function SimpleClientTable({
                                     value={draft?.fees || ''}
                                     onChange={(e) => updateDraft(client.id, 'fees', e.target.value)}
                                     placeholder="Fees"
-                                    className="w-[68px] px-1.5 py-1 text-[11px] font-mono text-right bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]"
+                                    className={inlineNumClass}
                                   />
                                 </td>
                                 <td className="px-1.5 py-2 text-right">
@@ -710,8 +906,8 @@ export function SimpleClientTable({
                                     onChange={(e) =>
                                       updateDraft(client.id, 'received', e.target.value)
                                     }
-                                    placeholder="Recd"
-                                    className="w-[68px] px-1.5 py-1 text-[11px] font-mono text-right bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]"
+                                    placeholder="Received"
+                                    className={inlineNumClass}
                                   />
                                 </td>
                                 <td className="px-2 py-2 text-right font-mono font-semibold text-[var(--ink)] tabular-nums whitespace-nowrap">
@@ -736,7 +932,7 @@ export function SimpleClientTable({
                                     onChange={(e) =>
                                       updateDraft(client.id, 'paymentReceiveDate', e.target.value)
                                     }
-                                    className="w-[114px] px-1.5 py-1 text-[11px] font-mono bg-[var(--card)] border border-[var(--line)] rounded-lg focus:outline-none focus:border-[var(--blue-500)]"
+                                    className={inlineDateClass}
                                   />
                                 </td>
                                 <td className="px-1.5 py-2 text-right">
@@ -747,12 +943,17 @@ export function SimpleClientTable({
                                     className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-white bg-[var(--navy-900)] hover:bg-[var(--navy-700)] rounded-lg whitespace-nowrap cursor-pointer disabled:opacity-60"
                                   >
                                     <Plus className="w-3 h-3" />
-                                    <span>{savingClientId === client.id ? 'Saving...' : 'Save Year'}</span>
+                                    <span>
+                                      {savingClientId === client.id
+                                        ? 'Saving...'
+                                        : 'Add filing'}
+                                    </span>
                                   </button>
                                 </td>
                               </tr>
                             </tbody>
                           </table>
+                          </div>
                           <datalist id="inline-years-list">
                             {availableYears.map((y) => (
                               <option key={y} value={y} />
@@ -768,28 +969,19 @@ export function SimpleClientTable({
           </tbody>
         </table>
       </div>
+      )}
 
-      <div className="px-4 py-3 border-t border-[var(--line)] bg-[var(--frost-100)]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={!canGoPrev || showAllYears}
-            className={`${pillBtn} ${focusRing}`}
-          >
-            <span>‹ Previous{prevYear ? ` · ${shortAyLabel(prevYear)}` : ''}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={!canGoNext || showAllYears}
-            className={`${pillBtn} ${focusRing}`}
-          >
-            <span>Next{nextYear ? ` · ${shortAyLabel(nextYear)}` : ''} ›</span>
-          </button>
-        </div>
-      </div>
+      <TableFooterBar>
+        <BottomPeriodNavigator
+          canPrev={canGoPrev}
+          canNext={canGoNext}
+          showAll={showAllYears}
+          onPrev={goPrev}
+          onNext={goNext}
+          prevText={`‹ Previous${prevYear ? ` · ${shortAyLabel(prevYear)}` : ''}`}
+          nextText={`Next${nextYear ? ` · ${shortAyLabel(nextYear)}` : ''} ›`}
+        />
+      </TableFooterBar>
     </div>
   );
 }

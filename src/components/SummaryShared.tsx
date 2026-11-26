@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { Search } from 'lucide-react';
 import type { ClientRecord } from '../types/ledger.ts';
 import {
   computeBalance,
@@ -115,6 +116,81 @@ export function FilterChips<T extends string>({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Shared search + filter chips + sort slot + result count for IT/GST/Mobile summaries.
+ * Domain filter/sort options stay in each parent view.
+ */
+export function SummaryToolbar<T extends string>({
+  search,
+  onSearch,
+  searchPlaceholder,
+  filterOptions,
+  filter,
+  onFilter,
+  sortControl,
+  countLabel,
+}: {
+  search: string;
+  onSearch: (next: string) => void;
+  searchPlaceholder: string;
+  filterOptions: FilterChipOption<T>[];
+  filter: T;
+  onFilter: (next: T) => void;
+  sortControl: ReactNode;
+  countLabel: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--sidebar-text)]" />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder={searchPlaceholder}
+          className="w-full rounded-xl border border-[var(--line)] bg-[var(--frost-100)] pl-9 pr-3 py-2.5 text-[12px] text-[var(--ink)] placeholder:text-[var(--sidebar-text)] outline-none focus:border-[var(--blue-500)] focus:bg-[var(--card)]"
+        />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <FilterChips
+            options={filterOptions}
+            value={filter}
+            onChange={onFilter}
+          />
+          {sortControl}
+        </div>
+        <p className="text-[12px] font-semibold text-[var(--ink)]">{countLabel}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Linked-list "show more" chrome (Mobile summary expand panels). */
+export function SummaryShowMore({
+  remaining,
+  onShowMore,
+}: {
+  remaining: number;
+  onShowMore: () => void;
+}) {
+  if (remaining <= 0) return null;
+  return (
+    <div className="px-3 py-2 border-t border-[var(--line)]">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onShowMore();
+        }}
+        className="text-[11px] font-semibold text-[var(--blue-500)] hover:underline"
+      >
+        Show more ({remaining} remaining)
+      </button>
     </div>
   );
 }

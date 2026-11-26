@@ -1,13 +1,25 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import type { ClientRecord, GstClientRecord } from '../types/ledger.ts';
 import {
   computeBalance,
+  computeGstClientTotals,
   formatCurrency,
 } from '../utils/ledgerUtils.ts';
 import {
   computeGstMonthSummary,
   computeYearSummary,
 } from '../utils/summaryUtils.ts';
+import { fadeUp, springSoft, staggerContainer } from '../motion/presets.ts';
+import {
+  buildBillingHoverTipLines,
+  buildGstHoverTipLines,
+  DashboardHoverTip,
+  shortAyLabel,
+  type HoverTipModel,
+} from './shared/DashboardHoverTip.tsx';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
+import { MobileDashboard } from './mobile/MobileDashboard.tsx';
 
 interface OverallDashboardProps {
   itClients: ClientRecord[];
@@ -25,11 +37,7 @@ function inr(n: number): string {
   return formatCurrency(Math.max(0, Math.round(n)));
 }
 
-function shortAy(ay: string): string {
-  const m = ay.match(/(\d{4})-(\d{2})/);
-  if (m) return `${m[1].slice(2)}-${m[2]}`;
-  return ay.replace(/^AY\s*/i, '');
-}
+const shortAy = shortAyLabel;
 
 function shortMonth(m: string): string {
   const parts = m.trim().split(/\s+/);
@@ -161,7 +169,7 @@ function compactInr(n: number): string {
   }
   if (v < 10_000_000) {
     const lakh = v / 100_000;
-    return `₹${lakh >= 10 ? lakh.toFixed(1) : lakh.toFixed(1)}L`.replace(
+    return `₹${lakh.toFixed(1)}L`.replace(
       /\.0L$/,
       'L'
     );
@@ -253,6 +261,7 @@ export function OverallDashboard({
   onOpenItAllData,
   onOpenGstAllData,
 }: OverallDashboardProps) {
+  const isCompact = useIsCompactLayout();
   const itSummary = useMemo(
     () => computeYearSummary(itClients, assessmentYears),
     [itClients, assessmentYears]
@@ -262,17 +271,33 @@ export function OverallDashboard({
     [gstClients, gstMonths]
   );
 
+  /** Company-wide GST (incl. unallocated) — overall dashboard stays all-time. */
+  const gstCompanyWide = useMemo(() => {
+    let totalReceived = 0;
+    let totalOutstanding = 0;
+    let totalBilled = 0;
+    let totalEntries = 0;
+    for (const c of gstClients) {
+      const t = computeGstClientTotals(c);
+      totalReceived += t.totalReceived;
+      totalOutstanding += t.outstandingTotal;
+      totalBilled += t.totalBilled;
+      totalEntries += Object.keys(c.filings || {}).length;
+    }
+    return { totalReceived, totalOutstanding, totalBilled, totalEntries };
+  }, [gstClients]);
+
   const totalReceived =
-    itSummary.totalReceived + gstSummary.totalReceived;
-  const totalBilled = itSummary.totalBilled + gstSummary.totalBilled;
+    itSummary.totalReceived + gstCompanyWide.totalReceived;
+  const totalBilled = itSummary.totalBilled + gstCompanyWide.totalBilled;
   const totalOutstanding =
-    itSummary.totalOutstanding + gstSummary.totalOutstanding;
+    itSummary.totalOutstanding + gstCompanyWide.totalOutstanding;
   const collectionPct =
     totalBilled > 0 ? Math.min(100, (totalReceived / totalBilled) * 100) : 0;
   const outstandingPct =
     totalBilled > 0 ? Math.min(100, (totalOutstanding / totalBilled) * 100) : 0;
   const accounts = itClients.length + gstClients.length;
-  const filings = itSummary.totalEntries + gstSummary.totalEntries;
+  const filings = itSummary.totalEntries + gstCompanyWide.totalEntries;
   const periods = assessmentYears.length + gstMonths.length;
 
   const kpi = useInViewOnce<HTMLElement>();
@@ -287,9 +312,7 @@ export function OverallDashboard({
   const [yearWindow, setYearWindow] = useState<'3' | '5' | 'all'>('5');
   const [hideEmpty, setHideEmpty] = useState(true);
   const [openYear, setOpenYear] = useState<string | null>(null);
-  const [tip, setTip] = useState<{ html: string; x: number; y: number } | null>(
-    null
-  );
+  const [tip, setTip] = useState<HoverTipModel | null>(null);
 
   const itRowsFiltered = useMemo(() => {
     let rows = [...itSummary.rows].reverse();
@@ -366,8 +389,11 @@ export function OverallDashboard({
   }, [gstClients]);
 
   const gstCollectionPct =
-    gstSummary.totalBilled > 0
-      ? Math.min(100, (gstSummary.totalReceived / gstSummary.totalBilled) * 100)
+    gstCompanyWide.totalBilled > 0
+      ? Math.min(
+          100,
+          (gstCompanyWide.totalReceived / gstCompanyWide.totalBilled) * 100
+        )
       : 0;
 
   const gstTrendRows = useMemo(() => {
@@ -440,18 +466,39 @@ export function OverallDashboard({
   const T = 12;
   const B = 26;
 
-  const showTip = (e: React.MouseEvent, html: string) => {
+  const showTip = (e: React.MouseEvent, lines: HoverTipModel['lines']) => {
     setTip({
-      html,
+      lines,
       x: Math.min(e.clientX + 14, window.innerWidth - 200),
       y: e.clientY - 70,
     });
   };
 
+  if (isCompact) {
+    return (
+      <MobileDashboard
+        itClients={itClients}
+        assessmentYears={assessmentYears}
+        gstClients={gstClients}
+        gstMonths={gstMonths}
+        onAddClient={onAddClient}
+        onAddCompany={onAddCompany}
+        onExportCsv={onExportCsv}
+        onOpenItAllData={onOpenItAllData}
+        onOpenGstAllData={onOpenGstAllData}
+      />
+    );
+  }
+
   return (
     <div id="top" className="space-y-4 font-[family-name:var(--font-display)]">
-      <header className="flex flex-wrap gap-3 justify-between items-end">
-        <div>
+      <motion.header
+        className="flex flex-wrap gap-3 justify-between items-end"
+        variants={staggerContainer}
+        initial="hidden"
+        animate="show"
+      >
+        <motion.div variants={fadeUp} custom={0}>
           <h1 className="text-[clamp(22px,2.4vw,28px)] font-bold tracking-[-0.02em] leading-[1.15] text-[var(--ink)]">
             Hey, here’s your money picture
           </h1>
@@ -460,38 +507,50 @@ export function OverallDashboard({
             {gstClients.length}{' '}
             {gstClients.length === 1 ? 'company' : 'companies'}, all amounts in ₹
           </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
+        </motion.div>
+        <motion.div className="flex flex-wrap gap-2" variants={fadeUp} custom={1}>
+          <motion.button
             type="button"
             onClick={onAddClient}
-            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--navy-900)] text-white border border-[var(--navy-900)] hover:-translate-y-0.5 transition-transform cursor-pointer"
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.97 }}
+            transition={springSoft}
+            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--navy-900)] text-white border border-[var(--navy-900)] cursor-pointer"
           >
             + Add client
-          </button>
-          <button
+          </motion.button>
+          <motion.button
             type="button"
             onClick={onAddCompany}
-            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--gold)] text-[var(--ink)] border border-[var(--gold)] hover:-translate-y-0.5 transition-transform cursor-pointer"
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.97 }}
+            transition={springSoft}
+            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--gold)] text-[var(--ink)] border border-[var(--gold)] cursor-pointer"
           >
             + Add GST company
-          </button>
-          <button
+          </motion.button>
+          <motion.button
             type="button"
             onClick={onExportCsv}
-            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--card)] text-[var(--ink)] border border-[var(--line)] hover:-translate-y-0.5 transition-transform cursor-pointer"
+            whileHover={{ y: -2 }}
+            whileTap={{ scale: 0.97 }}
+            transition={springSoft}
+            className="px-3.5 py-2 rounded-full text-xs font-semibold bg-[var(--card)] text-[var(--ink)] border border-[var(--line)] cursor-pointer"
           >
             Export CSV
-          </button>
-        </div>
-      </header>
+          </motion.button>
+        </motion.div>
+      </motion.header>
 
       {/* KPI strip */}
-      <section
+      <motion.section
         ref={kpi.ref}
         className="grid grid-cols-1 md:grid-cols-12 gap-3"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.12, duration: 0.45 }}
       >
-        <div className="md:col-span-5 relative overflow-hidden rounded-2xl bg-grad-navy text-white p-4 flex justify-between items-center gap-3 shadow-card">
+        <div className="md:col-span-5 relative overflow-hidden rounded-2xl bg-grad-navy text-white p-4 flex justify-between items-center gap-3 shadow-card motion-lift">
           <div
             aria-hidden
             className="absolute w-[160px] h-[160px] rounded-full bg-white/10 -right-12 -top-14"
@@ -580,7 +639,7 @@ export function OverallDashboard({
             {filings} filings across {periods} periods
           </p>
         </div>
-      </section>
+      </motion.section>
 
       {/* IT */}
       <h3
@@ -736,7 +795,7 @@ export function OverallDashboard({
                 const receivedY = baseY - receivedH;
                 const outstandingY = receivedY - outstandingH;
                 const topIsOutstanding = outstandingH > 0.5;
-                const tipHtml = `<b>Assessment year ${shortAy(row.assessmentYear)}</b><br/>Received ${inr(row.received)}<br/>Outstanding ${inr(row.outstanding)}<br/>Billed ${inr(row.billed)}<br/>Collection ${row.collectionPct.toFixed(1)}%`;
+                const tipLines = buildBillingHoverTipLines(row);
                 const isHovered = billingHoverYear === row.assessmentYear;
                 return (
                   <g key={row.assessmentYear}>
@@ -799,7 +858,7 @@ export function OverallDashboard({
                       className="cursor-pointer"
                       onMouseMove={(e) => {
                         setBillingHoverYear(row.assessmentYear);
-                        showTip(e, tipHtml);
+                        showTip(e, tipLines);
                       }}
                       onMouseLeave={() => {
                         setBillingHoverYear(null);
@@ -813,7 +872,7 @@ export function OverallDashboard({
           )}
         </div>
 
-        <div className="xl:col-span-4 rounded-2xl bg-[var(--card)] p-4 shadow-card h-[420px] flex flex-col">
+        <div className="xl:col-span-4 rounded-2xl bg-[var(--card)] p-4 shadow-card flex flex-col min-h-0">
           <div className="flex justify-between items-center gap-2 shrink-0">
             <h2 className="text-base font-semibold text-[var(--ink)]">Collection share</h2>
             <strong className="text-sm text-[var(--success)]">
@@ -865,7 +924,7 @@ export function OverallDashboard({
               {itClients.length}
             </span>
           </div>
-          <div className="mt-2 flex-1 flex flex-col justify-between gap-1.5 min-h-0">
+          <div className="mt-2 flex flex-col gap-1.5">
             {filedYearBuckets.map((b) => (
               <div
                 key={b.id}
@@ -889,7 +948,7 @@ export function OverallDashboard({
           <button
             type="button"
             onClick={onOpenItAllData}
-            className="mt-2.5 w-full text-xs font-semibold text-[var(--ink)] py-2 rounded-full border border-[var(--line)] hover:bg-[var(--frost-100)] cursor-pointer shrink-0"
+            className="mt-3 w-full text-xs font-semibold text-[var(--ink)] py-2.5 rounded-full border border-[var(--line)] bg-[var(--card)] hover:bg-[var(--frost-100)] cursor-pointer shrink-0 relative z-10"
           >
             Open IT all data →
           </button>
@@ -1046,11 +1105,11 @@ export function OverallDashboard({
                                   const tag =
                                     billed > 0 && recd >= billed
                                       ? ['paid', 'Paid']
-                                      : recd > 0
-                                        ? ['part', 'Partial']
-                                        : billed
-                                          ? ['due', 'Due']
-                                          : ['due', 'No bill'];
+                                      : billed > 0 && recd > 0
+                                        ? ['part', 'Partially Paid']
+                                        : billed > 0
+                                          ? ['due', 'Pending']
+                                          : ['due', 'No Billing'];
                                   return (
                                     <div
                                       key={`${client.id}-${row.year}`}
@@ -1324,7 +1383,7 @@ export function OverallDashboard({
                         i === gstTrendRows.length - 1
                           ? W - R
                           : (cx + pts[i + 1][0]) / 2;
-                      const tipHtml = `<b>${row.month}</b><br/>Tax ${inr(row.tax)}<br/>Fees ${inr(row.fees)}<br/>Interest ${inr(row.interest)}<br/><b>Total ${inr(row.total)}</b><br/>Fees + interest ${row.feesInterestPct.toFixed(1)}%`;
+                      const tipLines = buildGstHoverTipLines(row);
                       return (
                         <g key={row.month}>
                           <circle
@@ -1370,7 +1429,7 @@ export function OverallDashboard({
                             className="cursor-pointer"
                             onMouseMove={(e) => {
                               setGstHoverIdx(i);
-                              showTip(e, tipHtml);
+                              showTip(e, tipLines);
                             }}
                             onMouseLeave={() => {
                               setGstHoverIdx(null);
@@ -1387,7 +1446,7 @@ export function OverallDashboard({
           )}
         </div>
 
-        <div className="xl:col-span-4 rounded-2xl bg-[var(--card)] p-4 shadow-card h-[420px] flex flex-col">
+        <div className="xl:col-span-4 rounded-2xl bg-[var(--card)] p-4 shadow-card flex flex-col min-h-0">
           <div className="flex justify-between items-center gap-2 shrink-0">
             <h2 className="text-base font-semibold text-[var(--ink)]">GST totals</h2>
             <strong className="text-sm text-[var(--success)]">
@@ -1421,10 +1480,10 @@ export function OverallDashboard({
             </svg>
             <div className="absolute text-center px-2 max-w-[96px]">
               <strong className="text-base font-bold block text-[var(--ink)] tabular-nums leading-tight truncate">
-                {compactInr(gstSummary.totalBilled)}
+                {compactInr(gstCompanyWide.totalBilled)}
               </strong>
               <span className="text-[10px] text-[var(--muted)] tabular-nums block truncate">
-                recd {compactInr(gstSummary.totalReceived)}
+                recd {compactInr(gstCompanyWide.totalReceived)}
               </span>
             </div>
           </div>
@@ -1437,7 +1496,7 @@ export function OverallDashboard({
               {gstClients.length}
             </span>
           </div>
-          <div className="mt-2 flex-1 flex flex-col justify-between gap-1.5 min-h-0">
+          <div className="mt-2 flex flex-col gap-1.5">
             {filedMonthBuckets.map((b) => (
               <div
                 key={b.id}
@@ -1461,20 +1520,14 @@ export function OverallDashboard({
           <button
             type="button"
             onClick={onOpenGstAllData}
-            className="mt-2.5 w-full text-xs font-semibold text-[var(--ink)] py-2 rounded-full border border-[var(--line)] hover:bg-[var(--frost-100)] cursor-pointer shrink-0"
+            className="mt-3 w-full text-xs font-semibold text-[var(--ink)] py-2.5 rounded-full border border-[var(--line)] bg-[var(--card)] hover:bg-[var(--frost-100)] cursor-pointer shrink-0 relative z-10"
           >
             Open GST all data →
           </button>
         </div>
       </section>
 
-      {tip && (
-        <div
-          className="fixed z-50 bg-[var(--navy-900)] text-white px-3.5 py-2.5 rounded-[14px] text-[13px] pointer-events-none leading-relaxed"
-          style={{ left: tip.x, top: tip.y }}
-          dangerouslySetInnerHTML={{ __html: tip.html }}
-        />
-      )}
+      {tip ? <DashboardHoverTip tip={tip} /> : null}
     </div>
   );
 }

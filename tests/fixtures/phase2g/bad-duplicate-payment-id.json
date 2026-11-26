@@ -1,0 +1,42 @@
+{
+  "assessmentYears": ["AY 2024-25"],
+  "gstMonths": ["Apr 2024"],
+  "clients": [],
+  "gstClients": [
+    {
+      "id": "gst-syn-bad-dup-pay",
+      "companyName": "Bad Dup Payment Id Co",
+      "userId": "syn.bad.dup",
+      "phone": "",
+      "referenceNumber": "",
+      "totalReceived": 20,
+      "filings": {
+        "Apr 2024": {
+          "month": "Apr 2024",
+          "fees": 100,
+          "interest": 0,
+          "tax": 0,
+          "total": 100,
+          "payments": [
+            {
+              "id": "pay-dup",
+              "amount": 10,
+              "paymentDate": "2024-04-01",
+              "paymentMode": "UPI",
+              "createdAt": "2024-04-01T00:00:00.000Z"
+            },
+            {
+              "id": "pay-dup",
+              "amount": 10,
+              "paymentDate": "2024-04-02",
+              "paymentMode": "Cash",
+              "createdAt": "2024-04-02T00:00:00.000Z"
+            }
+          ]
+        }
+      },
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-02T00:00:00.000Z"
+    }
+  ]
+}

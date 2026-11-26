@@ -5,16 +5,23 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, Search } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import type { ClientRecord } from '../types/ledger.ts';
 import {
   computeBalance,
   formatDisplayDate,
-  formatPlainNumber,
   sortAssessmentYears,
 } from '../utils/ledgerUtils.ts';
 import { computeClientSummaries } from '../utils/summaryUtils.ts';
 import { LimeSelect } from './LimeSelect.tsx';
+import {
+  PaginationBar,
+  SummaryCard,
+  SummaryToolbar,
+  moneyPlain,
+} from './SummaryShared.tsx';
+import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
+import { ClientSummaryMobileCards } from './mobile/SummaryMobileCards.tsx';
 
 interface ClientSummaryViewProps {
   clients: ClientRecord[];
@@ -26,10 +33,6 @@ type ClientSort = 'outstanding' | 'billed' | 'name' | 'latest';
 type YearStatus = 'paid' | 'part' | 'unpaid';
 
 const COL_COUNT = 13;
-
-function moneyPlain(n: number): string {
-  return `₹${formatPlainNumber(Math.max(0, Math.round(n)))}`;
-}
 
 function ayShort(ay: string): string {
   return ay.replace(/^AY\s*/i, '');
@@ -148,8 +151,8 @@ function YearHistory({ client }: { client: ClientRecord }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--card)]">
-      <table className="w-full text-[12px] border-collapse">
+    <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-[var(--line)] bg-[var(--card)]">
+      <table className="w-full min-w-[560px] text-[12px] border-collapse">
         <thead>
           <tr className="bg-[var(--navy-900)] text-white">
             <th className="px-3 py-2 text-left font-semibold">AY</th>
@@ -200,6 +203,7 @@ function YearHistory({ client }: { client: ClientRecord }) {
 }
 
 export function ClientSummaryView({ clients, years }: ClientSummaryViewProps) {
+  const isCompact = useIsCompactLayout();
   const currentYear = useMemo(() => resolveCurrentAy(years), [years]);
   const currentYearShort = ayShort(currentYear);
 
@@ -282,9 +286,6 @@ export function ClientSummaryView({ clients, years }: ClientSummaryViewProps) {
     }
   };
 
-  const from = rows.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const to = Math.min(safePage * pageSize, rows.length);
-
   const filterOptions: { id: ClientFilter; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'dues', label: 'Dues pending' },
@@ -293,48 +294,19 @@ export function ClientSummaryView({ clients, years }: ClientSummaryViewProps) {
   ];
 
   return (
-    <section className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
-      <div className="px-5 pt-5 pb-3">
-        <h2 className="text-[17px] font-semibold text-[var(--ink)]">
-          Client Summary
-        </h2>
-        <p className="text-[12px] text-[var(--muted)] mt-0.5">
-          Expand a client to see assessment-year fees, received, and balance.
-        </p>
-      </div>
-
-      <div className="px-5 pb-4 space-y-3">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--sidebar-text)]" />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, PAN, mobile…"
-            className="w-full rounded-xl border border-[var(--line)] bg-[var(--frost-100)] pl-9 pr-3 py-2.5 text-[12px] text-[var(--ink)] placeholder:text-[var(--sidebar-text)] outline-none focus:border-[var(--blue-500)] focus:bg-[var(--card)]"
-          />
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {filterOptions.map((opt) => {
-                const selected = opt.id === filter;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setFilter(opt.id)}
-                    className={
-                      selected
-                        ? 'px-3 py-1.5 rounded-full text-[11px] font-semibold bg-[var(--navy-900)] text-white'
-                        : 'px-3 py-1.5 rounded-full text-[11px] font-semibold bg-[var(--card)] text-[var(--ink)] border border-[var(--line)] hover:border-[var(--navy-900)]'
-                    }
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
+    <SummaryCard
+      title="Client Summary"
+      subtitle="Expand a client to see assessment-year fees, received, and balance."
+      toolbar={
+        <SummaryToolbar
+          search={search}
+          onSearch={setSearch}
+          searchPlaceholder="Search name, PAN, mobile…"
+          filterOptions={filterOptions}
+          filter={filter}
+          onFilter={setFilter}
+          countLabel={`${rows.length} clients`}
+          sortControl={
             <label className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
               <span className="font-medium">Sort</span>
               <LimeSelect
@@ -351,13 +323,35 @@ export function ClientSummaryView({ clients, years }: ClientSummaryViewProps) {
                 ]}
               />
             </label>
-          </div>
-          <p className="text-[12px] font-semibold text-[var(--ink)]">
-            {rows.length} clients
-          </p>
-        </div>
-      </div>
-
+          }
+        />
+      }
+      pagination={
+        <PaginationBar
+          page={safePage}
+          pageSize={pageSize}
+          total={rows.length}
+          entityPlural="clients"
+          onPage={setPage}
+          onPageSize={setPageSize}
+        />
+      }
+    >
+      {isCompact ? (
+        <ClientSummaryMobileCards
+          rows={pageRows}
+          openIds={openIds}
+          onToggle={(id) => setOpenIds((prev) => toggleId(prev, id))}
+          renderExpanded={(row) => {
+            const client = clientsById.get(row.id);
+            return client ? (
+              <YearHistory client={client} />
+            ) : (
+              <p className="text-xs text-[var(--muted)]">Details unavailable.</p>
+            );
+          }}
+        />
+      ) : (
       <div className="overflow-x-auto ledger-scroll">
         <table className="w-full border-collapse text-left text-[12px] min-w-[1100px]">
           <thead>
@@ -535,49 +529,7 @@ export function ClientSummaryView({ clients, years }: ClientSummaryViewProps) {
           ) : null}
         </table>
       </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-[var(--frost-100)] border-t border-[var(--line)] text-xs text-[var(--muted)]">
-        <p>
-          Showing{' '}
-          <span className="font-semibold text-[var(--ink)]">
-            {from}–{to}
-          </span>{' '}
-          of <span className="font-semibold text-[var(--ink)]">{rows.length}</span>{' '}
-          clients
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2">
-            <span>Per page</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              className="rounded-lg border border-[var(--line)] bg-[var(--card)] px-2 py-1.5 text-xs font-medium text-[var(--ink)] outline-none focus:border-[var(--blue-500)]"
-            >
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
-          </label>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              disabled={safePage <= 1}
-              onClick={() => setPage(safePage - 1)}
-              className="px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--card)] text-xs font-semibold text-[var(--ink)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-[var(--navy-900)]"
-            >
-              Prev
-            </button>
-            <button
-              type="button"
-              disabled={safePage >= totalPages}
-              onClick={() => setPage(safePage + 1)}
-              className="px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--card)] text-xs font-semibold text-[var(--ink)] disabled:opacity-40 disabled:cursor-not-allowed hover:border-[var(--navy-900)]"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
+      )}
+    </SummaryCard>
   );
 }

@@ -17,18 +17,7 @@ import {
   computeMobileSummaries,
   computeYearSummary,
 } from './summaryUtils.ts';
-
-function escapeCsvCell(value: string | number | undefined | null): string {
-  const str = String(value ?? '');
-  if (/[",\n\r]/.test(str)) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
-
-function toCsvLines(rows: (string | number | undefined | null)[][]): string {
-  return rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
-}
+import { toCsvLines } from './csvHelpers.ts';
 
 function formatExcelDate(dateStr: string | undefined): string {
   if (!dateStr || !dateStr.trim()) return '';
@@ -78,7 +67,7 @@ export function exportAllDataExcelCsv(
         slNo++,
         client.name,
         client.pan,
-        client.password,
+        "",
         client.phone || '',
         client.referenceNumber || '',
         formatExcelDate(f.filingDate),
@@ -100,7 +89,7 @@ export function exportAllDataExcelCsv(
         slNo++,
         client.name,
         client.pan,
-        client.password,
+        "",
         client.phone || '',
         client.referenceNumber || '',
         '',
@@ -147,7 +136,7 @@ export function exportContinuousSheetExcelCsv(
     rows.push([
       client.name,
       client.pan,
-      client.password,
+      "",
       client.phone || '',
       client.referenceNumber || '',
       client.remark || '',
@@ -467,7 +456,7 @@ export function exportGstAllDataExcelCsv(
         slNo++,
         client.companyName,
         client.userId,
-        client.password,
+        "",
         client.phone || '',
         client.referenceNumber || '',
         client.remark || '',
@@ -489,7 +478,7 @@ export function exportGstAllDataExcelCsv(
         slNo++,
         client.companyName,
         client.userId,
-        client.password,
+        "",
         client.phone || '',
         client.referenceNumber || '',
         client.remark || '',
@@ -533,7 +522,7 @@ export function exportGstContinuousSheetExcelCsv(
     rows.push([
       client.companyName,
       client.userId,
-      client.password,
+      "",
       client.phone || '',
       client.referenceNumber || '',
       client.remark || '',
