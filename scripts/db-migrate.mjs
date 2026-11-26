@@ -3,7 +3,8 @@
  *
  * Local (default — DB_TARGET_MODE unset or local):
  *   - it_gst_management_dev  → DATABASE_URL on localhost
- *   - it_gst_management_test → PG_AUTH_TEST_DATABASE_URL on localhost (never DATABASE_URL)
+ *   - it_gst_management_test / it_gst_management_real_rehearsal
+ *       → PG_AUTH_TEST_DATABASE_URL on localhost (never DATABASE_URL)
  *
  * Remote (DB_TARGET_MODE=remote) — Phase 8B.2:
  *   Requires DB_APPROVED_REMOTE_HOST, DB_APPROVED_REMOTE_DATABASE,
@@ -26,6 +27,7 @@ import {
   redactDatabaseUrl,
   resolveDbTargetMode,
   rewriteDatabaseUrl,
+  usesPgAuthTestDatabaseUrl,
 } from './db-safety.mjs';
 
 /** Strict up-migration names: NNN_snake_name.sql (excludes *_down.sql). */
@@ -80,11 +82,11 @@ function listOrderedMigrations(dir) {
 }
 
 function resolveLocalMigrateConnection(confirm) {
-  if (confirm === 'it_gst_management_test') {
+  if (usesPgAuthTestDatabaseUrl(confirm)) {
     return assertSafeDatabaseTarget(process.env.PG_AUTH_TEST_DATABASE_URL, {
-      allowedDatabases: ['it_gst_management_test'],
+      allowedDatabases: [confirm],
       missingMessage:
-        'PG_AUTH_TEST_DATABASE_URL is missing. Test migrations never fall back to DATABASE_URL.',
+        'PG_AUTH_TEST_DATABASE_URL is missing. Test/rehearsal migrations never fall back to DATABASE_URL.',
     });
   }
   if (ALLOWED_DISPOSABLE_DRILL_DB_NAMES.includes(confirm)) {

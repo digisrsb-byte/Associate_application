@@ -1,0 +1,204 @@
+{
+  "assessmentYears": ["AY 2024-25"],
+  "gstMonths": ["Apr 2024", "May 2024", "Jun 2024", "Jul 2024"],
+  "clients": [
+    {
+      "id": "cli-syn-it-001",
+      "name": "Synthetic IT Client",
+      "pan": "ZZZZZ9999Z",
+      "phone": "9000000000",
+      "referenceNumber": "SYN-IT-REF",
+      "filings": {
+        "AY 2024-25": {
+          "assessmentYear": "AY 2024-25",
+          "filingDate": "2024-07-31",
+          "fees": 5000,
+          "received": 2000,
+          "balance": 3000,
+          "paymentType": "UPI",
+          "paymentReceiveDate": "2024-08-15"
+        }
+      },
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-02T00:00:00.000Z"
+    }
+  ],
+  "gstClients": [
+    {
+      "id": "gst-syn-legacy-001",
+      "companyName": "Synthetic Legacy Traders",
+      "userId": "syn.legacy.portal",
+      "phone": "9000000001",
+      "referenceNumber": "SYN-LEGACY",
+      "totalReceived": 1500,
+      "filings": {
+        "Apr 2024": {
+          "month": "Apr 2024",
+          "fees": 800,
+          "interest": 20,
+          "tax": 80,
+          "total": 900,
+          "received": 1000
+        },
+        "May 2024": {
+          "month": "May 2024",
+          "fees": 400,
+          "interest": 0,
+          "tax": 40,
+          "total": 440,
+          "received": 0
+        },
+        "Jun 2024": {
+          "month": "Jun 2024",
+          "fees": 200,
+          "interest": 0,
+          "tax": 20,
+          "total": 220
+        }
+      },
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-02T00:00:00.000Z"
+    },
+    {
+      "id": "gst-syn-pay-001",
+      "companyName": "Synthetic Payment Lines Co",
+      "userId": "syn.pay.portal",
+      "phone": "9000000002",
+      "referenceNumber": "SYN-PAY",
+      "totalReceived": 350,
+      "filings": {
+        "Apr 2024": {
+          "month": "Apr 2024",
+          "fees": 500,
+          "interest": 10,
+          "tax": 50,
+          "total": 560,
+          "received": 250,
+          "payments": [
+            {
+              "id": "pay-syn-a1",
+              "amount": 100,
+              "paymentDate": "2024-04-05",
+              "paymentMode": "UPI",
+              "reference": "SYN-UTR-100",
+              "idempotencyKey": "syn-idem-a1",
+              "createdAt": "2024-04-05T10:00:00.000Z"
+            },
+            {
+              "id": "pay-syn-a2",
+              "amount": 150,
+              "paymentDate": "2024-04-20",
+              "paymentMode": "Cash",
+              "reference": "SYN-CASH-150",
+              "idempotencyKey": "syn-idem-a2",
+              "createdAt": "2024-04-20T11:00:00.000Z",
+              "updatedAt": "2024-04-20T12:00:00.000Z"
+            }
+          ]
+        },
+        "May 2024": {
+          "month": "May 2024",
+          "fees": 300,
+          "interest": 0,
+          "tax": 30,
+          "total": 330,
+          "received": 100,
+          "payments": [
+            {
+              "id": "pay-syn-b1",
+              "amount": 100,
+              "paymentDate": "2024-05-10",
+              "paymentMode": "Bank Transfer",
+              "reference": "SYN-NEFT-100",
+              "idempotencyKey": "syn-idem-b1",
+              "createdAt": "2024-05-10T09:00:00.000Z"
+            }
+          ]
+        }
+      },
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-02T00:00:00.000Z"
+    },
+    {
+      "id": "gst-syn-mixed-001",
+      "companyName": "Synthetic Mixed Mode Co",
+      "userId": "syn.mixed.portal",
+      "phone": "9000000003",
+      "referenceNumber": "SYN-MIXED",
+      "totalReceived": 100,
+      "unallocatedReceived": 20,
+      "filings": {
+        "Apr 2024": {
+          "month": "Apr 2024",
+          "fees": 150,
+          "interest": 0,
+          "tax": 15,
+          "total": 165,
+          "received": 50
+        },
+        "May 2024": {
+          "month": "May 2024",
+          "fees": 120,
+          "interest": 0,
+          "tax": 12,
+          "total": 132,
+          "payments": [],
+          "received": 0
+        },
+        "Jun 2024": {
+          "month": "Jun 2024",
+          "fees": 200,
+          "interest": 5,
+          "tax": 20,
+          "total": 225,
+          "received": 80,
+          "payments": [
+            {
+              "id": "pay-syn-m1",
+              "amount": 80,
+              "paymentDate": "2024-06-12",
+              "paymentMode": "GPay",
+              "reference": "SYN-GPAY-80",
+              "idempotencyKey": "syn-idem-m1",
+              "createdAt": "2024-06-12T08:30:00.000Z"
+            }
+          ]
+        }
+      },
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-02T00:00:00.000Z"
+    },
+    {
+      "id": "gst-syn-unalloc-001",
+      "companyName": "Synthetic Unallocated Co",
+      "userId": "syn.unalloc.portal",
+      "phone": "9000000004",
+      "referenceNumber": "SYN-UNALLOC",
+      "totalReceived": 175,
+      "unallocatedReceived": 75,
+      "filings": {
+        "Jul 2024": {
+          "month": "Jul 2024",
+          "fees": 250,
+          "interest": 0,
+          "tax": 25,
+          "total": 275,
+          "received": 100,
+          "payments": [
+            {
+              "id": "pay-syn-u1",
+              "amount": 100,
+              "paymentDate": "2024-07-08",
+              "paymentMode": "Cheque",
+              "reference": "SYN-CHQ-100",
+              "idempotencyKey": "syn-idem-u1",
+              "createdAt": "2024-07-08T14:00:00.000Z"
+            }
+          ]
+        }
+      },
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-02T00:00:00.000Z"
+    }
+  ]
+}

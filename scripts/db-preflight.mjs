@@ -4,8 +4,8 @@
  * Never logs passwords.
  *
  * Local:
- *   DB_PREFLIGHT_CONFIRM=it_gst_management_dev|it_gst_management_test
- *   Uses DATABASE_URL or PG_AUTH_TEST_DATABASE_URL (test) on localhost.
+ *   DB_PREFLIGHT_CONFIRM=it_gst_management_dev|it_gst_management_test|it_gst_management_real_rehearsal
+ *   Uses DATABASE_URL (dev) or PG_AUTH_TEST_DATABASE_URL (test/rehearsal) on localhost.
  *
  * Remote:
  *   DB_TARGET_MODE=remote + approved host/database + DB_PREFLIGHT_CONFIRM + TLS
@@ -14,23 +14,25 @@
 import 'dotenv/config';
 import pg from 'pg';
 import {
+  ALLOWED_DB_NAME,
   ALLOWED_MIGRATE_DB_NAMES,
   assertRemoteDatabaseTarget,
   assertSafeDatabaseTarget,
   redactDatabaseUrl,
   resolveDbTargetMode,
+  usesPgAuthTestDatabaseUrl,
 } from './db-safety.mjs';
 
 function resolveLocal(confirm) {
-  if (confirm === 'it_gst_management_test') {
+  if (usesPgAuthTestDatabaseUrl(confirm)) {
     return assertSafeDatabaseTarget(process.env.PG_AUTH_TEST_DATABASE_URL, {
-      allowedDatabases: ['it_gst_management_test'],
+      allowedDatabases: [confirm],
       missingMessage:
-        'PG_AUTH_TEST_DATABASE_URL is missing. Test preflight never falls back to DATABASE_URL.',
+        'PG_AUTH_TEST_DATABASE_URL is missing. Test/rehearsal preflight never falls back to DATABASE_URL.',
     });
   }
   return assertSafeDatabaseTarget(process.env.DATABASE_URL, {
-    allowedDatabases: ['it_gst_management_dev'],
+    allowedDatabases: [ALLOWED_DB_NAME],
   });
 }
 

@@ -31,6 +31,7 @@ function createOrgStore() {
     it_filings: [] as Row[],
     gst_companies: [] as Row[],
     gst_filings: [] as Row[],
+    gst_payments: [] as Row[],
   };
 
   function scoped(table: keyof typeof store, orgId: string) {
@@ -53,11 +54,16 @@ function createOrgStore() {
           `itf:${r.it_client_id}:${r.assessment_year}:${r.fees}:${r.received}:${r.balance}:${r.payment_type}:${r.payment_receive_date}:${r.filing_date}`
       ),
       ...scoped('gst_companies', orgId).map(
-        (r) => `gst:${r.id}:${r.updated_at}:${r.total_received}`
+        (r) =>
+          `gst:${r.id}:${r.updated_at}:${r.total_received}:${r.unallocated_received ?? 0}`
       ),
       ...scoped('gst_filings', orgId).map(
         (r) =>
-          `gf:${r.gst_company_id}:${r.month}:${r.fees}:${r.interest}:${r.tax}:${r.total}`
+          `gf:${r.gst_company_id}:${r.month}:${r.fees}:${r.interest}:${r.tax}:${r.total}:${r.payments_present}:${r.legacy_received ?? ''}`
+      ),
+      ...scoped('gst_payments', orgId).map(
+        (r) =>
+          `gp:${r.id}:${r.gst_company_id}:${r.month}:${r.amount}:${r.payment_date}:${r.payment_mode}:${r.reference ?? ''}:${r.idempotency_key ?? ''}:${r.created_at}:${r.updated_at ?? ''}`
       ),
     ].sort();
     return parts.join('|');
@@ -155,6 +161,15 @@ function createOrgStore() {
             rows: scoped('gst_filings', orgId),
           };
         }
+        if (/FROM gst_payments/i.test(sql) && /SELECT id, gst_company_id/i.test(sql)) {
+          const orgId = String(v[0]);
+          const rows = [...scoped('gst_payments', orgId)].sort((a, b) => {
+            const byCreated = String(a.created_at).localeCompare(String(b.created_at));
+            if (byCreated !== 0) return byCreated;
+            return String(a.id).localeCompare(String(b.id));
+          });
+          return { rowCount: rows.length, rows };
+        }
 
         if (/INSERT INTO assessment_years/i.test(sql)) {
           store.assessment_years.push({
@@ -211,9 +226,10 @@ function createOrgStore() {
             reference_number: String(v[5]),
             remark: v[6],
             total_received: Number(v[7]),
-            password_enc: v[8],
-            created_at: String(v[9]),
-            updated_at: String(v[10]),
+            unallocated_received: Number(v[8]),
+            password_enc: v[9],
+            created_at: String(v[10]),
+            updated_at: String(v[11]),
           });
           return { rowCount: 1, rows: [] };
         }
@@ -226,6 +242,24 @@ function createOrgStore() {
             interest: Number(v[4]),
             tax: Number(v[5]),
             total: Number(v[6]),
+            payments_present: Boolean(v[7]),
+            legacy_received: v[8] == null ? null : Number(v[8]),
+          });
+          return { rowCount: 1, rows: [] };
+        }
+        if (/INSERT INTO gst_payments/i.test(sql)) {
+          store.gst_payments.push({
+            id: String(v[0]),
+            organization_id: String(v[1]),
+            gst_company_id: String(v[2]),
+            month: String(v[3]),
+            amount: Number(v[4]),
+            payment_date: String(v[5]),
+            payment_mode: String(v[6]),
+            reference: v[7],
+            idempotency_key: v[8],
+            created_at: String(v[9]),
+            updated_at: v[10],
           });
           return { rowCount: 1, rows: [] };
         }
@@ -522,5 +556,467 @@ describe('pgLedgerRepository (mocked, no DB connection)', () => {
       // @ts-expect-error intentional missing options
       saveLedgerForOrganization(pool, ORG_A, sampleLedger())
     ).rejects.toThrow(/expectedRevision/);
+  });
+
+  it('round-trips multiple partial GST payments with mode and reference', async () => {
+    const { createPool, store } = createOrgStore();
+    const pool = createPool();
+    const ledger = sampleLedger({
+      gstClients: [
+        {
+          id: 'gst-1',
+          companyName: 'Beta GST',
+          userId: 'portal-user-1',
+          phone: '9000000002',
+          referenceNumber: 'G1',
+          totalReceived: 150,
+          filings: {
+            'Apr 2024': {
+              month: 'Apr 2024',
+              fees: 200,
+              interest: 10,
+              tax: 50,
+              total: 260,
+              payments: [
+                {
+                  id: 'pay-1',
+                  amount: 100,
+                  paymentDate: '2024-04-10',
+                  paymentMode: 'UPI',
+                  reference: 'UTR-100',
+                  idempotencyKey: 'idem-1',
+                  createdAt: '2024-04-10T10:00:00.000Z',
+                },
+                {
+                  id: 'pay-2',
+                  amount: 50,
+                  paymentDate: '2024-04-20',
+                  paymentMode: 'Cash',
+                  reference: 'RCPT-50',
+                  idempotencyKey: 'idem-2',
+                  createdAt: '2024-04-20T11:00:00.000Z',
+                  updatedAt: '2024-04-20T12:00:00.000Z',
+                },
+              ],
+            },
+          },
+          createdAt: '2025-01-01T00:00:00.000Z',
+          updatedAt: '2025-01-02T00:00:00.000Z',
+        },
+      ],
+    });
+
+    await saveFresh(pool, ORG_A, ledger);
+    expect(store.gst_payments).toHaveLength(2);
+
+    const loaded = await loadLedgerForOrganization(pool, ORG_A);
+    const filing = loaded.gstClients[0].filings['Apr 2024'];
+    expect(filing.payments).toHaveLength(2);
+    expect(filing.payments![0]).toMatchObject({
+      id: 'pay-1',
+      amount: 100,
+      paymentMode: 'UPI',
+      reference: 'UTR-100',
+      idempotencyKey: 'idem-1',
+    });
+    expect(filing.payments![1]).toMatchObject({
+      id: 'pay-2',
+      amount: 50,
+      paymentMode: 'Cash',
+      reference: 'RCPT-50',
+    });
+    expect(filing.received).toBe(150);
+    // History is individual rows — not collapsed into company total alone.
+    expect(store.gst_payments.map((p) => p.id)).toEqual(['pay-1', 'pay-2']);
+    expect(loaded.gstClients[0].totalReceived).toBe(150);
+
+    const gst = computeGstClientSummaries(loaded.gstClients, loaded.gstMonths);
+    expect(gst[0].totalBilled).toBe(260);
+    expect(gst[0].totalReceived).toBe(150);
+    expect(gst[0].outstanding).toBe(110);
+  });
+
+  it('preserves unallocatedReceived separately from payment lines', async () => {
+    const { createPool, store } = createOrgStore();
+    const pool = createPool();
+    await saveFresh(
+      pool,
+      ORG_A,
+      sampleLedger({
+        gstClients: [
+          {
+            id: 'gst-1',
+            companyName: 'Beta GST',
+            userId: 'portal-user-1',
+            phone: '',
+            referenceNumber: '',
+            totalReceived: 175,
+            unallocatedReceived: 75,
+            filings: {
+              'Apr 2024': {
+                month: 'Apr 2024',
+                fees: 200,
+                interest: 0,
+                tax: 0,
+                total: 200,
+                payments: [
+                  {
+                    id: 'pay-a',
+                    amount: 100,
+                    paymentDate: '2024-04-05',
+                    paymentMode: 'Bank Transfer',
+                    createdAt: '2024-04-05T09:00:00.000Z',
+                  },
+                ],
+              },
+            },
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-02T00:00:00.000Z',
+          },
+        ],
+      })
+    );
+
+    expect(store.gst_companies[0].unallocated_received).toBe(75);
+    expect(store.gst_payments).toHaveLength(1);
+
+    const loaded = await loadLedgerForOrganization(pool, ORG_A);
+    expect(loaded.gstClients[0].unallocatedReceived).toBe(75);
+    expect(loaded.gstClients[0].filings['Apr 2024'].payments).toHaveLength(1);
+
+    const gst = computeGstClientSummaries(loaded.gstClients, loaded.gstMonths);
+    expect(gst[0].unallocatedReceived).toBe(75);
+    expect(gst[0].totalReceived).toBe(175);
+    expect(gst[0].outstanding).toBe(25);
+    expect(loaded.gstClients[0].filings['Apr 2024'].received).toBe(100);
+  });
+
+  it('legacy-only filing omits payments and restores legacy_received', async () => {
+    const { createPool, store } = createOrgStore();
+    const pool = createPool();
+    await saveFresh(
+      pool,
+      ORG_A,
+      sampleLedger({
+        gstClients: [
+          {
+            id: 'gst-1',
+            companyName: 'Beta GST',
+            userId: 'portal-user-1',
+            phone: '',
+            referenceNumber: '',
+            totalReceived: 250,
+            filings: {
+              'Apr 2024': {
+                month: 'Apr 2024',
+                fees: 200,
+                interest: 10,
+                tax: 50,
+                total: 260,
+                received: 90,
+              },
+            },
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-02T00:00:00.000Z',
+          },
+        ],
+      })
+    );
+
+    expect(store.gst_payments).toHaveLength(0);
+    expect(store.gst_filings[0].payments_present).toBe(false);
+    expect(store.gst_filings[0].legacy_received).toBe(90);
+
+    const loaded = await loadLedgerForOrganization(pool, ORG_A);
+    expect(loaded.gstClients[0].filings['Apr 2024'].payments).toBeUndefined();
+    expect(loaded.gstClients[0].filings['Apr 2024'].received).toBe(90);
+    expect(loaded.gstClients[0].totalReceived).toBe(250);
+    expect(loaded.gstClients[0].unallocatedReceived).toBeUndefined();
+  });
+
+  it('explicit zero legacy received round-trips; missing received stays omitted', async () => {
+    const { createPool, store } = createOrgStore();
+    const pool = createPool();
+    await saveFresh(
+      pool,
+      ORG_A,
+      sampleLedger({
+        gstMonths: ['Apr 2024', 'May 2024'],
+        gstClients: [
+          {
+            id: 'gst-1',
+            companyName: 'Beta GST',
+            userId: 'portal-user-1',
+            phone: '',
+            referenceNumber: '',
+            totalReceived: 0,
+            filings: {
+              'Apr 2024': {
+                month: 'Apr 2024',
+                fees: 100,
+                interest: 0,
+                tax: 0,
+                total: 100,
+                received: 0,
+              },
+              'May 2024': {
+                month: 'May 2024',
+                fees: 50,
+                interest: 0,
+                tax: 0,
+                total: 50,
+                // received omitted
+              },
+            },
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-02T00:00:00.000Z',
+          },
+        ],
+      })
+    );
+
+    const apr = store.gst_filings.find((r) => r.month === 'Apr 2024')!;
+    const may = store.gst_filings.find((r) => r.month === 'May 2024')!;
+    expect(apr.payments_present).toBe(false);
+    expect(apr.legacy_received).toBe(0);
+    expect(may.payments_present).toBe(false);
+    expect(may.legacy_received).toBeNull();
+
+    const loaded = await loadLedgerForOrganization(pool, ORG_A);
+    expect(loaded.gstClients[0].filings['Apr 2024'].received).toBe(0);
+    expect(loaded.gstClients[0].filings['May 2024'].received).toBeUndefined();
+    expect(loaded.gstClients[0].filings['May 2024'].payments).toBeUndefined();
+  });
+
+  it('empty payments array round-trips as payment mode with []', async () => {
+    const { createPool, store } = createOrgStore();
+    const pool = createPool();
+    await saveFresh(
+      pool,
+      ORG_A,
+      sampleLedger({
+        gstClients: [
+          {
+            id: 'gst-1',
+            companyName: 'Beta GST',
+            userId: 'portal-user-1',
+            phone: '',
+            referenceNumber: '',
+            totalReceived: 25,
+            unallocatedReceived: 25,
+            filings: {
+              'Apr 2024': {
+                month: 'Apr 2024',
+                fees: 200,
+                interest: 10,
+                tax: 50,
+                total: 260,
+                payments: [],
+              },
+            },
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-02T00:00:00.000Z',
+          },
+        ],
+      })
+    );
+
+    expect(store.gst_payments).toHaveLength(0);
+    expect(store.gst_filings[0].payments_present).toBe(true);
+    expect(store.gst_filings[0].legacy_received).toBeNull();
+
+    const loaded = await loadLedgerForOrganization(pool, ORG_A);
+    expect(loaded.gstClients[0].filings['Apr 2024'].payments).toEqual([]);
+    expect(loaded.gstClients[0].filings['Apr 2024'].received).toBe(0);
+    expect(loaded.gstClients[0].unallocatedReceived).toBe(25);
+    expect(loaded.gstClients[0].totalReceived).toBe(25);
+  });
+
+  it('mixed legacy and payment-line filings round-trip independently', async () => {
+    const { createPool, store } = createOrgStore();
+    const pool = createPool();
+    await saveFresh(
+      pool,
+      ORG_A,
+      sampleLedger({
+        gstMonths: ['Apr 2024', 'May 2024'],
+        gstClients: [
+          {
+            id: 'gst-legacy',
+            companyName: 'Legacy Co',
+            userId: 'legacy-user',
+            phone: '',
+            referenceNumber: '',
+            totalReceived: 500,
+            filings: {
+              'Apr 2024': {
+                month: 'Apr 2024',
+                fees: 100,
+                interest: 0,
+                tax: 0,
+                total: 100,
+                received: 40,
+              },
+            },
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-02T00:00:00.000Z',
+          },
+          {
+            id: 'gst-pay',
+            companyName: 'Payment Co',
+            userId: 'pay-user',
+            phone: '',
+            referenceNumber: '',
+            totalReceived: 130,
+            unallocatedReceived: 30,
+            filings: {
+              'May 2024': {
+                month: 'May 2024',
+                fees: 200,
+                interest: 0,
+                tax: 0,
+                total: 200,
+                payments: [
+                  {
+                    id: 'pay-m',
+                    amount: 100,
+                    paymentDate: '2024-05-01',
+                    paymentMode: 'UPI',
+                    createdAt: '2024-05-01T00:00:00.000Z',
+                  },
+                ],
+              },
+            },
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-02T00:00:00.000Z',
+          },
+        ],
+      })
+    );
+
+    const legacyRow = store.gst_filings.find((r) => r.gst_company_id === 'gst-legacy')!;
+    const payRow = store.gst_filings.find((r) => r.gst_company_id === 'gst-pay')!;
+    expect(legacyRow.payments_present).toBe(false);
+    expect(legacyRow.legacy_received).toBe(40);
+    expect(payRow.payments_present).toBe(true);
+    expect(payRow.legacy_received).toBeNull();
+    expect(store.gst_payments).toHaveLength(1);
+
+    const loaded = await loadLedgerForOrganization(pool, ORG_A);
+    const legacy = loaded.gstClients.find((c) => c.id === 'gst-legacy')!;
+    const pay = loaded.gstClients.find((c) => c.id === 'gst-pay')!;
+    expect(legacy.filings['Apr 2024'].payments).toBeUndefined();
+    expect(legacy.filings['Apr 2024'].received).toBe(40);
+    expect(legacy.totalReceived).toBe(500);
+    expect(pay.filings['May 2024'].payments).toHaveLength(1);
+    expect(pay.filings['May 2024'].received).toBe(100);
+    expect(pay.totalReceived).toBe(130);
+    expect(pay.unallocatedReceived).toBe(30);
+  });
+
+  it('revision changes when payments_present marker or legacy_received changes', async () => {
+    const { createPool } = createOrgStore();
+    const pool = createPool();
+    await saveFresh(
+      pool,
+      ORG_A,
+      sampleLedger({
+        gstClients: [
+          {
+            id: 'gst-1',
+            companyName: 'Beta GST',
+            userId: 'portal-user-1',
+            phone: '',
+            referenceNumber: '',
+            totalReceived: 10,
+            filings: {
+              'Apr 2024': {
+                month: 'Apr 2024',
+                fees: 200,
+                interest: 10,
+                tax: 50,
+                total: 260,
+                received: 10,
+              },
+            },
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-02T00:00:00.000Z',
+          },
+        ],
+      })
+    );
+    const before = await loadLedgerSnapshot(pool, ORG_A);
+
+    await mutateLedgerForOrganization(pool, ORG_A, (current) => {
+      current.gstClients[0].filings['Apr 2024'].received = 55;
+      current.gstClients[0].updatedAt = '2025-06-04T00:00:00.000Z';
+      return current;
+    });
+    const afterLegacy = await loadLedgerSnapshot(pool, ORG_A);
+    expect(afterLegacy.revision).not.toBe(before.revision);
+
+    await mutateLedgerForOrganization(pool, ORG_A, (current) => {
+      current.gstClients[0].filings['Apr 2024'].payments = [];
+      delete current.gstClients[0].filings['Apr 2024'].received;
+      current.gstClients[0].unallocatedReceived = 55;
+      current.gstClients[0].totalReceived = 55;
+      current.gstClients[0].updatedAt = '2025-06-05T00:00:00.000Z';
+      return current;
+    });
+    const afterMarker = await loadLedgerSnapshot(pool, ORG_A);
+    expect(afterMarker.revision).not.toBe(afterLegacy.revision);
+    expect(afterMarker.ledger.gstClients[0].filings['Apr 2024'].payments).toEqual(
+      []
+    );
+  });
+
+  it('revision changes when GST payment history changes', async () => {
+    const { createPool } = createOrgStore();
+    const pool = createPool();
+    await saveFresh(pool, ORG_A, sampleLedger());
+    const before = await loadLedgerSnapshot(pool, ORG_A);
+
+    await mutateLedgerForOrganization(pool, ORG_A, (current) => {
+      const filing = current.gstClients[0].filings['Apr 2024'];
+      filing.payments = [
+        {
+          id: 'pay-rev',
+          amount: 40,
+          paymentDate: '2024-04-12',
+          paymentMode: 'GPay',
+          reference: 'REV-1',
+          idempotencyKey: 'idem-rev',
+          createdAt: '2024-04-12T08:00:00.000Z',
+        },
+      ];
+      current.gstClients[0].totalReceived = 40;
+      current.gstClients[0].updatedAt = '2025-06-02T00:00:00.000Z';
+      return current;
+    });
+
+    const after = await loadLedgerSnapshot(pool, ORG_A);
+    expect(after.revision).not.toBe(before.revision);
+    expect(after.ledger.gstClients[0].filings['Apr 2024'].payments).toHaveLength(
+      1
+    );
+    expect(after.ledger.gstClients[0].filings['Apr 2024'].received).toBe(40);
+  });
+
+  it('revision changes when unallocatedReceived changes', async () => {
+    const { createPool } = createOrgStore();
+    const pool = createPool();
+    await saveFresh(pool, ORG_A, sampleLedger());
+    const before = await loadLedgerSnapshot(pool, ORG_A);
+
+    await mutateLedgerForOrganization(pool, ORG_A, (current) => {
+      current.gstClients[0].unallocatedReceived = 33;
+      current.gstClients[0].totalReceived = 283;
+      current.gstClients[0].updatedAt = '2025-06-03T00:00:00.000Z';
+      return current;
+    });
+
+    const after = await loadLedgerSnapshot(pool, ORG_A);
+    expect(after.revision).not.toBe(before.revision);
+    expect(after.ledger.gstClients[0].unallocatedReceived).toBe(33);
   });
 });

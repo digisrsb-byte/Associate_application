@@ -7,6 +7,21 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 
 export const ALLOWED_DB_NAME = 'it_gst_management_dev';
+/** Disposable local auth/business test database (never a remote/production name). */
+export const ALLOWED_TEST_DB_NAME = 'it_gst_management_test';
+/**
+ * Dedicated disposable DB for real-ledger import rehearsal (Phase 2J).
+ * Preserves it_gst_management_test (Phase 2G synthetic evidence).
+ */
+export const ALLOWED_REAL_REHEARSAL_DB_NAME = 'it_gst_management_real_rehearsal';
+/**
+ * Disposable DBs that resolve exclusively via PG_AUTH_TEST_DATABASE_URL
+ * (never DATABASE_URL). Confirm env must match the URL database name exactly.
+ */
+export const ALLOWED_PG_AUTH_TEST_URL_DB_NAMES = Object.freeze([
+  ALLOWED_TEST_DB_NAME,
+  ALLOWED_REAL_REHEARSAL_DB_NAME,
+]);
 /**
  * Disposable local-only databases for Phase 8C backup/restore drills.
  * Never permitted as remote migrate/provision targets.
@@ -17,14 +32,22 @@ export const ALLOWED_DISPOSABLE_DRILL_DB_NAMES = Object.freeze([
 ]);
 /** Databases permitted for local db:migrate (each requires matching DB_MIGRATE_CONFIRM). */
 export const ALLOWED_MIGRATE_DB_NAMES = Object.freeze([
-  'it_gst_management_dev',
-  'it_gst_management_test',
+  ALLOWED_DB_NAME,
+  ...ALLOWED_PG_AUTH_TEST_URL_DB_NAMES,
   ...ALLOWED_DISPOSABLE_DRILL_DB_NAMES,
+]);
+/**
+ * Databases permitted for ledger import / verify (explicit confirm required).
+ * Production / arbitrary names remain refused.
+ */
+export const ALLOWED_IMPORT_VERIFY_DB_NAMES = Object.freeze([
+  ALLOWED_DB_NAME,
+  ...ALLOWED_PG_AUTH_TEST_URL_DB_NAMES,
 ]);
 /** Names that must never be used as a remote/production migrate target. */
 export const FORBIDDEN_REMOTE_DATABASE_NAMES = Object.freeze([
-  'it_gst_management_dev',
-  'it_gst_management_test',
+  ALLOWED_DB_NAME,
+  ...ALLOWED_PG_AUTH_TEST_URL_DB_NAMES,
   ...ALLOWED_DISPOSABLE_DRILL_DB_NAMES,
   'postgres',
   'template0',
@@ -76,12 +99,14 @@ const BUSINESS_TABLES = [
   'users',
   'organization_members',
   'sessions',
+  'password_reset_challenges',
   'assessment_years',
   'gst_months',
   'it_clients',
   'it_filings',
   'gst_companies',
   'gst_filings',
+  'gst_payments',
 ];
 
 export function redactDatabaseUrl(raw) {
@@ -434,6 +459,82 @@ export function assertConfirmEnv(envName, expectedValue) {
       `Refusing to proceed: set ${envName}=${expectedValue} in the environment for this command.`
     );
   }
+}
+
+/**
+ * Require confirm env to equal one of an explicit allowlist (exact match).
+ * @param {string} envName
+ * @param {readonly string[]} allowedValues
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string} confirmed database name
+ */
+export function assertConfirmEnvOneOf(
+  envName,
+  allowedValues,
+  env = process.env
+) {
+  const actual = String(env[envName] || '').trim();
+  const allowed = [...allowedValues];
+  if (!allowed.includes(actual)) {
+    throw new Error(
+      `Refusing to proceed: set ${envName} to one of [${allowed.join(', ')}] ` +
+        `(got "${actual || '(empty)'}").`
+    );
+  }
+  return actual;
+}
+
+/**
+ * True when confirm must use PG_AUTH_TEST_DATABASE_URL (never DATABASE_URL).
+ * @param {string} confirm
+ */
+export function usesPgAuthTestDatabaseUrl(confirm) {
+  return ALLOWED_PG_AUTH_TEST_URL_DB_NAMES.includes(String(confirm || '').trim());
+}
+
+/**
+ * Resolve localhost connection for import/verify against an explicit confirm DB.
+ * - it_gst_management_dev → DATABASE_URL
+ * - it_gst_management_test / it_gst_management_real_rehearsal → PG_AUTH_TEST_DATABASE_URL
+ *   (never falls back to DATABASE_URL; URL database name must match confirm exactly)
+ * Production / non-allowlisted names are refused.
+ *
+ * @param {string} confirmEnvName e.g. DB_IMPORT_CONFIRM / DB_VERIFY_CONFIRM
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function resolveImportVerifyTarget(confirmEnvName, env = process.env) {
+  const confirm = assertConfirmEnvOneOf(
+    confirmEnvName,
+    ALLOWED_IMPORT_VERIFY_DB_NAMES,
+    env
+  );
+
+  if (usesPgAuthTestDatabaseUrl(confirm)) {
+    const target = assertSafeDatabaseTarget(env.PG_AUTH_TEST_DATABASE_URL, {
+      allowedDatabases: [confirm],
+      missingMessage:
+        'PG_AUTH_TEST_DATABASE_URL is missing. Required when confirming ' +
+        `${confirm} (never falls back to DATABASE_URL).`,
+    });
+    if (target.database !== confirm) {
+      throw new Error(
+        `Refusing: PG_AUTH_TEST_DATABASE_URL database "${target.database}" does not match ${confirmEnvName}=${confirm}.`
+      );
+    }
+    const mode =
+      confirm === ALLOWED_REAL_REHEARSAL_DB_NAME ? 'real_rehearsal' : 'test';
+    return { ...target, confirm, mode };
+  }
+
+  const target = assertSafeDatabaseTarget(env.DATABASE_URL, {
+    allowedDatabases: [ALLOWED_DB_NAME],
+  });
+  if (target.database !== confirm) {
+    throw new Error(
+      `Refusing: DATABASE_URL database "${target.database}" does not match ${confirmEnvName}=${confirm}.`
+    );
+  }
+  return { ...target, confirm, mode: 'dev' };
 }
 
 export function migrationsDir() {

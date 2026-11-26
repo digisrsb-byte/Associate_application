@@ -11,6 +11,7 @@ import type {
   FilingRecord,
   GstClientRecord,
   GstMonthlyFiling,
+  GstPaymentEntry,
   LedgerState,
 } from '../types/ledger.ts';
 import type { DbPool } from '../db/passwordResetStore.ts';
@@ -68,12 +69,20 @@ export async function computeLedgerRevision(
          FROM it_filings WHERE organization_id = $1::uuid
        UNION ALL
        SELECT 'gst:' || id || ':' || EXTRACT(EPOCH FROM updated_at)::text || ':' ||
-              total_received::text
+              total_received::text || ':' || unallocated_received::text
          FROM gst_companies WHERE organization_id = $1::uuid
        UNION ALL
        SELECT 'gf:' || gst_company_id || ':' || month || ':' ||
-              fees::text || ':' || interest::text || ':' || tax::text || ':' || total::text
+              fees::text || ':' || interest::text || ':' || tax::text || ':' || total::text || ':' ||
+              payments_present::text || ':' || COALESCE(legacy_received::text, '')
          FROM gst_filings WHERE organization_id = $1::uuid
+       UNION ALL
+       SELECT 'gp:' || id || ':' || gst_company_id || ':' || month || ':' ||
+              amount::text || ':' || payment_date || ':' || payment_mode || ':' ||
+              COALESCE(reference, '') || ':' || COALESCE(idempotency_key, '') || ':' ||
+              EXTRACT(EPOCH FROM created_at)::text || ':' ||
+              COALESCE(EXTRACT(EPOCH FROM updated_at)::text, '')
+         FROM gst_payments WHERE organization_id = $1::uuid
      ) parts`,
     [organizationId]
   );
@@ -99,6 +108,30 @@ async function lockOrganization(
   );
 }
 
+function paymentFilingKey(companyId: string, month: string): string {
+  return `${companyId}\0${month}`;
+}
+
+function mapPaymentRow(row: Record<string, unknown>): GstPaymentEntry {
+  const entry: GstPaymentEntry = {
+    id: str(row.id),
+    amount: num(row.amount),
+    paymentDate: str(row.payment_date),
+    paymentMode: str(row.payment_mode),
+    createdAt: new Date(String(row.created_at)).toISOString(),
+  };
+  if (row.reference != null && str(row.reference)) {
+    entry.reference = str(row.reference);
+  }
+  if (row.idempotency_key != null && str(row.idempotency_key)) {
+    entry.idempotencyKey = str(row.idempotency_key);
+  }
+  if (row.updated_at != null && str(row.updated_at)) {
+    entry.updatedAt = new Date(String(row.updated_at)).toISOString();
+  }
+  return entry;
+}
+
 function mapLedgerFromRows(args: {
   years: Record<string, unknown>[];
   months: Record<string, unknown>[];
@@ -106,6 +139,7 @@ function mapLedgerFromRows(args: {
   itFilings: Record<string, unknown>[];
   gstCompanies: Record<string, unknown>[];
   gstFilings: Record<string, unknown>[];
+  gstPayments: Record<string, unknown>[];
 }): LedgerState {
   const filingsByClient = new Map<string, Record<string, FilingRecord>>();
   for (const row of args.itFilings) {
@@ -145,18 +179,46 @@ function mapLedgerFromRows(args: {
     return rec;
   });
 
+  const paymentsByFiling = new Map<string, GstPaymentEntry[]>();
+  for (const row of args.gstPayments) {
+    const key = paymentFilingKey(String(row.gst_company_id), String(row.month));
+    const list = paymentsByFiling.get(key) || [];
+    list.push(mapPaymentRow(row));
+    paymentsByFiling.set(key, list);
+  }
+  for (const list of paymentsByFiling.values()) {
+    list.sort((a, b) => {
+      const byCreated = a.createdAt.localeCompare(b.createdAt);
+      if (byCreated !== 0) return byCreated;
+      return a.id.localeCompare(b.id);
+    });
+  }
+
   const filingsByGst = new Map<string, Record<string, GstMonthlyFiling>>();
   for (const row of args.gstFilings) {
     const cid = String(row.gst_company_id);
     const month = String(row.month);
     const map = filingsByGst.get(cid) || {};
-    map[month] = {
+    const paymentsPresent = Boolean(row.payments_present);
+    const filing: GstMonthlyFiling = {
       month,
       fees: num(row.fees),
       interest: num(row.interest),
       tax: num(row.tax),
       total: num(row.total),
     };
+    if (paymentsPresent) {
+      // Always return an array (including []) so consumers detect payment mode.
+      const payments = paymentsByFiling.get(paymentFilingKey(cid, month)) || [];
+      filing.payments = payments;
+      filing.received = payments.reduce(
+        (sum, p) => sum + Math.max(0, Number(p.amount) || 0),
+        0
+      );
+    } else if (row.legacy_received != null && row.legacy_received !== '') {
+      filing.received = num(row.legacy_received);
+    }
+    map[month] = filing;
     filingsByGst.set(cid, map);
   }
 
@@ -176,6 +238,10 @@ function mapLedgerFromRows(args: {
     if (row.remark != null) rec.remark = str(row.remark);
     if (row.password_enc != null && str(row.password_enc)) {
       rec.passwordEnc = str(row.password_enc);
+    }
+    const unallocated = num(row.unallocated_received);
+    if (unallocated !== 0) {
+      rec.unallocatedReceived = unallocated;
     }
     return rec;
   });
@@ -221,16 +287,25 @@ async function readLedgerRows(
   );
   const gstCompanies = await client.query(
     `SELECT id, company_name, portal_user_id, phone, reference_number, remark,
-            total_received, password_enc, created_at, updated_at
+            total_received, unallocated_received, password_enc, created_at, updated_at
      FROM gst_companies
      WHERE organization_id = $1::uuid
      ORDER BY id`,
     [organizationId]
   );
   const gstFilings = await client.query(
-    `SELECT gst_company_id, month, fees, interest, tax, total
+    `SELECT gst_company_id, month, fees, interest, tax, total,
+            payments_present, legacy_received
      FROM gst_filings
      WHERE organization_id = $1::uuid`,
+    [organizationId]
+  );
+  const gstPayments = await client.query(
+    `SELECT id, gst_company_id, month, amount, payment_date, payment_mode,
+            reference, idempotency_key, created_at, updated_at
+     FROM gst_payments
+     WHERE organization_id = $1::uuid
+     ORDER BY created_at, id`,
     [organizationId]
   );
 
@@ -241,6 +316,7 @@ async function readLedgerRows(
     itFilings: itFilings.rows,
     gstCompanies: gstCompanies.rows,
     gstFilings: gstFilings.rows,
+    gstPayments: gstPayments.rows,
   });
 }
 
@@ -276,6 +352,10 @@ async function replaceLedgerRows(
   organizationId: string,
   state: LedgerState
 ): Promise<void> {
+  await client.query(
+    `DELETE FROM gst_payments WHERE organization_id = $1::uuid`,
+    [organizationId]
+  );
   await client.query(`DELETE FROM gst_filings WHERE organization_id = $1::uuid`, [
     organizationId,
   ]);
@@ -374,11 +454,11 @@ async function replaceLedgerRows(
     await client.query(
       `INSERT INTO gst_companies (
          id, organization_id, company_name, portal_user_id, phone,
-         reference_number, remark, total_received, password_enc,
-         created_at, updated_at
+         reference_number, remark, total_received, unallocated_received,
+         password_enc, created_at, updated_at
        ) VALUES (
-         $1, $2::uuid, $3, $4, $5, $6, $7, $8, $9,
-         $10::timestamptz, $11::timestamptz
+         $1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10,
+         $11::timestamptz, $12::timestamptz
        )`,
       [
         c.id,
@@ -389,16 +469,23 @@ async function replaceLedgerRows(
         c.referenceNumber || '',
         c.remark ?? null,
         c.totalReceived || 0,
+        Math.max(0, Number(c.unallocatedReceived) || 0),
         c.passwordEnc && String(c.passwordEnc).trim() ? c.passwordEnc : null,
         c.createdAt || new Date().toISOString(),
         c.updatedAt || new Date().toISOString(),
       ]
     );
     for (const [month, f] of Object.entries(c.filings || {})) {
+      const paymentsPresent = Array.isArray(f.payments);
+      let legacyReceived: number | null = null;
+      if (!paymentsPresent && f.received != null && Number.isFinite(Number(f.received))) {
+        legacyReceived = Math.max(0, Number(f.received));
+      }
       await client.query(
         `INSERT INTO gst_filings (
-           organization_id, gst_company_id, month, fees, interest, tax, total
-         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)`,
+           organization_id, gst_company_id, month, fees, interest, tax, total,
+           payments_present, legacy_received
+         ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           organizationId,
           c.id,
@@ -407,8 +494,43 @@ async function replaceLedgerRows(
           f.interest || 0,
           f.tax || 0,
           f.total || 0,
+          paymentsPresent,
+          legacyReceived,
         ]
       );
+      if (!paymentsPresent) continue;
+      for (const p of f.payments || []) {
+        const paymentId = String(p?.id || '').trim();
+        if (!paymentId) {
+          throw new Error('GST payment id is required for PostgreSQL persistence.');
+        }
+        await client.query(
+          `INSERT INTO gst_payments (
+             id, organization_id, gst_company_id, month, amount, payment_date,
+             payment_mode, reference, idempotency_key, created_at, updated_at
+           ) VALUES (
+             $1, $2::uuid, $3, $4, $5, $6, $7, $8, $9,
+             $10::timestamptz, $11::timestamptz
+           )`,
+          [
+            paymentId,
+            organizationId,
+            c.id,
+            month,
+            Math.max(0, Number(p.amount) || 0),
+            p.paymentDate || '',
+            p.paymentMode || '',
+            p.reference != null && String(p.reference).trim()
+              ? String(p.reference)
+              : null,
+            p.idempotencyKey != null && String(p.idempotencyKey).trim()
+              ? String(p.idempotencyKey)
+              : null,
+            p.createdAt || new Date().toISOString(),
+            p.updatedAt ? p.updatedAt : null,
+          ]
+        );
+      }
     }
   }
 }

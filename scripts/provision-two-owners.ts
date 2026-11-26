@@ -22,6 +22,7 @@ import {
   redactDatabaseUrl,
   resolveDbTargetMode,
   rewriteDatabaseUrl,
+  usesPgAuthTestDatabaseUrl,
 } from './db-safety.mjs';
 import {
   normalizeEmail,
@@ -66,13 +67,13 @@ function resolveTarget() {
     );
   }
 
-  if (confirm === 'it_gst_management_test') {
+  if (usesPgAuthTestDatabaseUrl(confirm)) {
     const local = assertSafeDatabaseTarget(
       process.env.PG_AUTH_TEST_DATABASE_URL || '',
       {
-        allowedDatabases: ['it_gst_management_test'],
+        allowedDatabases: [confirm],
         missingMessage:
-          'PG_AUTH_TEST_DATABASE_URL is missing. Test provisioning never falls back to DATABASE_URL.',
+          'PG_AUTH_TEST_DATABASE_URL is missing. Test/rehearsal provisioning never falls back to DATABASE_URL.',
       }
     );
     return {

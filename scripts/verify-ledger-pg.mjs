@@ -4,28 +4,34 @@
  * Never logs PAN, phone, passwords, ciphertext, or keys.
  *
  * Run via: npm run verify:ledger:pg
- * Requires: DB_VERIFY_CONFIRM=it_gst_management_dev
+ * Requires: DB_VERIFY_CONFIRM=it_gst_management_dev|it_gst_management_test|it_gst_management_real_rehearsal
+ * Test/rehearsal targets use PG_AUTH_TEST_DATABASE_URL (never DATABASE_URL fallback).
  */
 import 'dotenv/config';
 import pg from 'pg';
 import { isEncryptedPortalPassword, recordHasPortalPassword } from '../portalCrypto.ts';
 import {
-  ALLOWED_DB_NAME,
-  assertConfirmEnv,
-  assertSafeDatabaseTarget,
   redactDatabaseUrl,
+  resolveImportVerifyTarget,
   tableExists,
 } from './db-safety.mjs';
-import { loadFrozenLedger, nearlyEqual, summarizeLedger } from './ledger-pg-shared.mjs';
+import {
+  buildImportRows,
+  diffGstFilingReceivedModeRows,
+  diffGstPaymentRows,
+  loadFrozenLedger,
+  nearlyEqual,
+  summarizeLedger,
+} from './ledger-pg-shared.mjs';
+import { loadPortalEncryptionKey } from '../portalCrypto.ts';
 
 async function main() {
-  assertConfirmEnv('DB_VERIFY_CONFIRM', ALLOWED_DB_NAME);
-
-  const { connectionString, host, database } = assertSafeDatabaseTarget(
-    process.env.DATABASE_URL
+  const { connectionString, host, database, confirm, clientConfig } =
+    resolveImportVerifyTarget('DB_VERIFY_CONFIRM');
+  console.info(
+    `[verify:ledger] target host=${host} database=${database} confirm=${confirm}`
   );
-  console.info(`[verify:ledger] target host=${host} database=${database}`);
-  console.info(`[verify:ledger] DATABASE_URL=${redactDatabaseUrl(connectionString)}`);
+  console.info(`[verify:ledger] url=${redactDatabaseUrl(connectionString)}`);
 
   const { state, sourcePath, byteLength } = loadFrozenLedger();
   console.info(
@@ -33,13 +39,15 @@ async function main() {
   );
   const summary = summarizeLedger(state);
 
-  const client = new pg.Client({ connectionString });
+  const client = new pg.Client(clientConfig);
   const failures = [];
   try {
     await client.connect();
     const connectedDb = (await client.query('SELECT current_database() AS db')).rows[0].db;
-    if (connectedDb !== ALLOWED_DB_NAME) {
-      throw new Error(`Connected database is "${connectedDb}", expected "${ALLOWED_DB_NAME}".`);
+    if (connectedDb !== confirm) {
+      throw new Error(
+        `Connected database is "${connectedDb}", expected "${confirm}".`
+      );
     }
 
     for (const table of [
@@ -50,6 +58,7 @@ async function main() {
       'it_filings',
       'gst_companies',
       'gst_filings',
+      'gst_payments',
     ]) {
       if (!(await tableExists(client, table))) {
         failures.push(`missing table ${table}`);
@@ -58,6 +67,14 @@ async function main() {
     if (failures.length) {
       throw new Error(failures.join('; '));
     }
+
+    const keyStatus = loadPortalEncryptionKey();
+    if (!keyStatus.ok) {
+      throw new Error(
+        `PORTAL_PASSWORD_ENCRYPTION_KEY is ${keyStatus.reason}. Refusing verify.`
+      );
+    }
+    const expectedRows = buildImportRows(state, keyStatus.key, 'verify-org');
 
     const orgCount = await scalar(client, 'SELECT COUNT(*)::bigint AS n FROM organizations');
     check(failures, 'organizations count', orgCount, 1);
@@ -86,6 +103,12 @@ async function main() {
     );
     check(failures, 'gst_filings count', gstFilingCount, summary.counts.gstFilings);
 
+    const gstPaymentCount = await scalar(
+      client,
+      'SELECT COUNT(*)::bigint AS n FROM gst_payments'
+    );
+    check(failures, 'gst_payments count', gstPaymentCount, summary.counts.gstPayments);
+
     const itIdsDb = (
       await client.query('SELECT id FROM it_clients ORDER BY id')
     ).rows.map((r) => r.id);
@@ -99,12 +122,24 @@ async function main() {
     const yearsDb = (
       await client.query('SELECT label FROM assessment_years ORDER BY label')
     ).rows.map((r) => r.label);
-    checkArr(failures, 'assessment year labels', yearsDb, summary.yearLabelsSorted);
+    // Compare as locale-normalized sets — PG ORDER BY collation can differ from
+    // JS Array.sort (e.g. case-insensitive vs ASCII), without changing membership.
+    checkLabelSet(
+      failures,
+      'assessment year labels',
+      yearsDb,
+      summary.yearLabelsSorted
+    );
 
     const monthsDb = (
       await client.query('SELECT label FROM gst_months ORDER BY label')
     ).rows.map((r) => r.label);
-    checkArr(failures, 'gst month labels', monthsDb, summary.monthLabelsSorted);
+    checkLabelSet(
+      failures,
+      'gst month labels',
+      monthsDb,
+      summary.monthLabelsSorted
+    );
 
     const itFin = await client.query(
       `SELECT COALESCE(SUM(fees),0)::float8 AS fees,
@@ -120,19 +155,168 @@ async function main() {
       `SELECT COALESCE(SUM(fees),0)::float8 AS fees,
               COALESCE(SUM(interest),0)::float8 AS interest,
               COALESCE(SUM(tax),0)::float8 AS tax,
-              COALESCE(SUM(total),0)::float8 AS total
+              COALESCE(SUM(total),0)::float8 AS total,
+              COALESCE(SUM(legacy_received),0)::float8 AS legacy_received,
+              COUNT(*) FILTER (WHERE payments_present)::bigint AS payments_present_true,
+              COUNT(*) FILTER (WHERE legacy_received IS NOT NULL)::bigint AS legacy_received_present
        FROM gst_filings`
     );
     checkNum(failures, 'GST fees sum', gstFin.rows[0].fees, summary.finance.gstFees);
     checkNum(failures, 'GST interest sum', gstFin.rows[0].interest, summary.finance.gstInt);
     checkNum(failures, 'GST tax sum', gstFin.rows[0].tax, summary.finance.gstTax);
     checkNum(failures, 'GST total sum', gstFin.rows[0].total, summary.finance.gstTotal);
+    checkNum(
+      failures,
+      'GST legacy_received sum',
+      gstFin.rows[0].legacy_received,
+      summary.finance.gstLegacyReceivedSum
+    );
+    check(
+      failures,
+      'GST payments_present true count',
+      Number(gstFin.rows[0].payments_present_true),
+      summary.counts.gstPaymentsPresentTrue
+    );
+    check(
+      failures,
+      'GST legacy_received present count',
+      Number(gstFin.rows[0].legacy_received_present),
+      summary.counts.gstLegacyReceivedPresent
+    );
+
+    const filingModeRowsDb = (
+      await client.query(
+        `SELECT gst_company_id, month, payments_present,
+                legacy_received::float8 AS legacy_received
+         FROM gst_filings
+         ORDER BY gst_company_id, month`
+      )
+    ).rows.map((r) => ({
+      gst_company_id: String(r.gst_company_id),
+      month: String(r.month),
+      payments_present: Boolean(r.payments_present),
+      legacy_received:
+        r.legacy_received == null ? null : Number(r.legacy_received),
+    }));
+    for (const f of diffGstFilingReceivedModeRows(
+      expectedRows.gstFilings,
+      filingModeRowsDb
+    )) {
+      failures.push(f);
+    }
 
     const gstRecv = await scalar(
       client,
       'SELECT COALESCE(SUM(total_received),0)::float8 AS n FROM gst_companies'
     );
     checkNum(failures, 'GST total_received sum', gstRecv, summary.finance.gstRecv);
+
+    const gstUnallocated = await scalar(
+      client,
+      'SELECT COALESCE(SUM(unallocated_received),0)::float8 AS n FROM gst_companies'
+    );
+    checkNum(
+      failures,
+      'GST unallocated_received sum',
+      gstUnallocated,
+      summary.finance.gstUnallocated
+    );
+
+    const gstPaymentSum = await scalar(
+      client,
+      'SELECT COALESCE(SUM(amount),0)::float8 AS n FROM gst_payments'
+    );
+    checkNum(
+      failures,
+      'GST payment amount sum',
+      gstPaymentSum,
+      summary.finance.gstPaymentAmountSum
+    );
+
+    const paymentRowsDb = (
+      await client.query(
+        `SELECT id, gst_company_id, month, amount::float8 AS amount,
+                payment_date, payment_mode, reference, idempotency_key,
+                created_at, updated_at
+         FROM gst_payments
+         ORDER BY id`
+      )
+    ).rows.map((r) => ({
+      id: String(r.id),
+      gst_company_id: String(r.gst_company_id),
+      month: String(r.month),
+      amount: Number(r.amount),
+      payment_date: String(r.payment_date || ''),
+      payment_mode: String(r.payment_mode || ''),
+      reference: r.reference == null ? null : String(r.reference),
+      idempotency_key:
+        r.idempotency_key == null ? null : String(r.idempotency_key),
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    }));
+
+    for (const f of diffGstPaymentRows(expectedRows.gstPayments, paymentRowsDb)) {
+      failures.push(f);
+    }
+
+    // Per-company payment amount + unallocated reconciliation (counts only / money).
+    const perCompanyDb = await client.query(
+      `SELECT c.id,
+              c.total_received::float8 AS total_received,
+              c.unallocated_received::float8 AS unallocated_received,
+              COALESCE(p.payment_count, 0)::bigint AS payment_count,
+              COALESCE(p.payment_sum, 0)::float8 AS payment_sum
+       FROM gst_companies c
+       LEFT JOIN (
+         SELECT gst_company_id,
+                COUNT(*)::bigint AS payment_count,
+                COALESCE(SUM(amount),0)::float8 AS payment_sum
+         FROM gst_payments
+         GROUP BY gst_company_id
+       ) p ON p.gst_company_id = c.id
+       ORDER BY c.id`
+    );
+    for (const row of perCompanyDb.rows) {
+      const exp = summary.perCompany[row.id];
+      if (!exp) {
+        failures.push(`gst company unexpected in DB id=${row.id}`);
+        continue;
+      }
+      check(
+        failures,
+        `gst company ${row.id} payment count`,
+        Number(row.payment_count),
+        exp.paymentCount
+      );
+      checkNum(
+        failures,
+        `gst company ${row.id} payment sum`,
+        Number(row.payment_sum),
+        exp.paymentAmountSum
+      );
+      checkNum(
+        failures,
+        `gst company ${row.id} unallocated_received`,
+        Number(row.unallocated_received),
+        exp.unallocated
+      );
+      checkNum(
+        failures,
+        `gst company ${row.id} total_received`,
+        Number(row.total_received),
+        exp.totalReceived
+      );
+      if (exp.usesPaymentAccounting) {
+        const allocatedPlusUnallocated =
+          Number(row.payment_sum) + Number(row.unallocated_received);
+        checkNum(
+          failures,
+          `gst company ${row.id} totalReceived vs allocated+unallocated`,
+          Number(row.total_received),
+          allocatedPlusUnallocated
+        );
+      }
+    }
 
     const itBalBad = await scalar(
       client,
@@ -192,7 +376,7 @@ async function main() {
 
     console.info('[verify:ledger] PASS');
     console.info(
-      `[verify:ledger] counts matched: it=${summary.counts.clients}/${summary.counts.itFilings} gst=${summary.counts.gstClients}/${summary.counts.gstFilings} years=${summary.counts.assessmentYearsToInsert} months=${summary.counts.gstMonthsToInsert} passwordEnc=${expectedEnc}`
+      `[verify:ledger] counts matched: it=${summary.counts.clients}/${summary.counts.itFilings} gst=${summary.counts.gstClients}/${summary.counts.gstFilings} gstPayments=${summary.counts.gstPayments} years=${summary.counts.assessmentYearsToInsert} months=${summary.counts.gstMonthsToInsert} passwordEnc=${expectedEnc}`
     );
   } finally {
     await client.end().catch(() => {});
@@ -227,6 +411,26 @@ function checkArr(failures, label, actual, expected) {
   }
   for (let i = 0; i < expected.length; i += 1) {
     if (actual[i] !== expected[i]) {
+      failures.push(`${label}: mismatch at index ${i}`);
+      return;
+    }
+  }
+}
+
+/** Case/base-insensitive label membership compare (avoids PG vs JS sort drift). */
+function checkLabelSet(failures, label, actual, expected) {
+  const norm = (arr) =>
+    [...arr]
+      .map((x) => String(x))
+      .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+  const a = norm(actual);
+  const e = norm(expected);
+  if (a.length !== e.length) {
+    failures.push(`${label}: length got ${a.length}, expected ${e.length}`);
+    return;
+  }
+  for (let i = 0; i < e.length; i += 1) {
+    if (a[i].localeCompare(e[i], 'en', { sensitivity: 'base' }) !== 0) {
       failures.push(`${label}: mismatch at index ${i}`);
       return;
     }

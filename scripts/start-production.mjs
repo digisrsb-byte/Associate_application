@@ -24,6 +24,54 @@ if (existingEnv && existingEnv !== 'production') {
 
 process.env.NODE_ENV = 'production';
 
+/**
+ * Production requires PostgreSQL auth + business SoR.
+ * JSON must not silently become the production fallback.
+ * Local/dev continues to use `npm run dev` with AUTH_BACKEND/BUSINESS_DATA_BACKEND=json.
+ */
+function assertProductionPostgresBackends(env = process.env) {
+  const auth = String(env.AUTH_BACKEND || '')
+    .trim()
+    .toLowerCase();
+  const business = String(env.BUSINESS_DATA_BACKEND || '')
+    .trim()
+    .toLowerCase();
+  const orgId = String(env.AUTH_ORGANIZATION_ID || '').trim();
+  const databaseUrl = String(env.DATABASE_URL || '').trim();
+
+  if (auth !== 'postgres' && auth !== 'postgresql') {
+    throw new Error(
+      'Production start requires AUTH_BACKEND=postgres (JSON is not a production fallback).'
+    );
+  }
+  if (business !== 'postgres' && business !== 'postgresql') {
+    throw new Error(
+      'Production start requires BUSINESS_DATA_BACKEND=postgres (JSON is not a production fallback).'
+    );
+  }
+  if (!databaseUrl) {
+    throw new Error('Production start requires DATABASE_URL.');
+  }
+  if (!orgId) {
+    throw new Error('Production start requires AUTH_ORGANIZATION_ID.');
+  }
+}
+
+try {
+  assertProductionPostgresBackends();
+  console.info(
+    '[start] AUTH_BACKEND=postgres BUSINESS_DATA_BACKEND=postgres (required for production)'
+  );
+} catch (err) {
+  console.error(
+    `[start] ${err instanceof Error ? err.message : String(err)}`
+  );
+  console.error(
+    '[start] For local JSON development use `npm run dev`, not `npm start`.'
+  );
+  process.exit(1);
+}
+
 if (!fs.existsSync(SERVER_ENTRY)) {
   console.error(
     '[start] Missing server.mjs. Run `npm run build` before `npm start`.'

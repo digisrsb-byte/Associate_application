@@ -1,6 +1,28 @@
 /**
  * Shared Phase 2 ledger parse / portal-password / reconcile helpers.
  * Never log PAN, phone, passwords, ciphertext, or keys.
+ *
+ * ## GST accounting models (import/verify) — Option D
+ *
+ * Per filing (migration 004):
+ *   payments_present = Array.isArray(filing.payments)
+ *   legacy_received  = filing.received when payments_present is false (NULL if absent)
+ *
+ * **Payment-line accounting** (company-level) — any filing has a `payments`
+ * array (including empty `[]`). Then:
+ *   totalReceived MUST equal sum(all allocated payment lines) + unallocatedReceived.
+ * Do NOT include legacy filing-level received in this company formula.
+ * Filing received is derived from payment line sums on load.
+ *
+ * **Legacy pool accounting** — no filing has a `payments` property.
+ * Company `totalReceived` is the pool SoR; each filing's scalar `received`
+ * is stored in `gst_filings.legacy_received` (NULL when omitted). Values
+ * are not rewritten into synthetic payment lines.
+ *
+ * **Empty `payments: []`** — payments_present=true, legacy_received=NULL,
+ * no `gst_payments` rows. Repository load returns `payments: []`.
+ *
+ * Distinctions preserved: missing payments | empty [] | non-empty array.
  */
 import fs from 'fs';
 import path from 'path';
@@ -139,9 +161,292 @@ function money(value, field) {
   return n;
 }
 
+function moneyNonNegative(value, field) {
+  const n = money(value, field);
+  if (n < 0) {
+    throw new Error(`${field} must be >= 0.`);
+  }
+  return n;
+}
+
+/** Allowed keys on a GST filing object in frozen JSON. */
+const GST_FILING_ALLOWED_KEYS = new Set([
+  'month',
+  'fees',
+  'interest',
+  'tax',
+  'total',
+  'payments',
+  'received',
+]);
+
+/** Allowed keys on a GST payment-line object. */
+const GST_PAYMENT_ALLOWED_KEYS = new Set([
+  'id',
+  'amount',
+  'paymentDate',
+  'paymentMode',
+  'reference',
+  'idempotencyKey',
+  'createdAt',
+  'updatedAt',
+]);
+
+/**
+ * Normalize one GST payment line for insert / verify.
+ * Preserves original id and metadata; never invents IT payment lines.
+ */
+export function mapGstPaymentLine(payment, contextLabel) {
+  if (!payment || typeof payment !== 'object') {
+    throw new Error(`${contextLabel}: payment entry must be an object.`);
+  }
+  const unexpected = Object.keys(payment).filter(
+    (k) => !GST_PAYMENT_ALLOWED_KEYS.has(k)
+  );
+  if (unexpected.length) {
+    throw new Error(
+      `${contextLabel}: payment has unexpected fields (${unexpected.join(', ')}).`
+    );
+  }
+
+  const id = typeof payment.id === 'string' ? payment.id.trim() : '';
+  if (!id) {
+    throw new Error(`${contextLabel}: payment id is required.`);
+  }
+
+  const amount = moneyNonNegative(payment.amount, `${contextLabel}.amount`);
+  const payment_date =
+    typeof payment.paymentDate === 'string'
+      ? payment.paymentDate
+      : String(payment.paymentDate || '');
+  const payment_mode =
+    typeof payment.paymentMode === 'string'
+      ? payment.paymentMode
+      : String(payment.paymentMode || '');
+
+  const referenceRaw = assertStringOrAbsent(
+    payment.reference,
+    `${contextLabel}.reference`
+  );
+  const idempotencyRaw = assertStringOrAbsent(
+    payment.idempotencyKey,
+    `${contextLabel}.idempotencyKey`
+  );
+
+  const created_at = parseTimestamp(
+    payment.createdAt,
+    `${contextLabel}.createdAt`
+  );
+  let updated_at = null;
+  if (payment.updatedAt != null && payment.updatedAt !== '') {
+    updated_at = parseTimestamp(payment.updatedAt, `${contextLabel}.updatedAt`);
+  }
+
+  return {
+    id,
+    amount,
+    payment_date,
+    payment_mode,
+    reference:
+      referenceRaw != null && referenceRaw.trim() ? referenceRaw.trim() : null,
+    idempotency_key:
+      idempotencyRaw != null && idempotencyRaw.trim()
+        ? idempotencyRaw.trim()
+        : null,
+    created_at,
+    updated_at,
+  };
+}
+
+/**
+ * Normalize timestamps for fingerprints (Date, ISO string, or PG timestamptz).
+ */
+export function fingerprintTimestamp(value) {
+  if (value == null || value === '') return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    return value.toISOString();
+  }
+  const ms = Date.parse(String(value));
+  if (Number.isNaN(ms)) return String(value);
+  return new Date(ms).toISOString();
+}
+
+/**
+ * Stable fingerprint for verify comparisons (includes created/updated timestamps).
+ */
+export function gstPaymentFingerprint(row) {
+  return [
+    row.id,
+    row.gst_company_id,
+    row.month,
+    Number(row.amount).toFixed(2),
+    row.payment_date || '',
+    row.payment_mode || '',
+    row.reference || '',
+    row.idempotency_key || '',
+    fingerprintTimestamp(row.created_at ?? row.createdAt),
+    fingerprintTimestamp(row.updated_at ?? row.updatedAt),
+  ].join('|');
+}
+
+/**
+ * True when any filing declares a `payments` array (including empty).
+ * Matches app `gstClientUsesPaymentAccounting` semantics.
+ */
+export function gstCompanyUsesPaymentAccounting(company) {
+  return Object.values(company?.filings || {}).some((f) =>
+    Array.isArray(f?.payments)
+  );
+}
+
+/**
+ * Fail closed when payment-line accounting applies but company totalReceived
+ * does not equal allocated payment sum + unallocatedReceived.
+ */
+export function assertGstCompanyTotalReceivedReconciles(
+  companyId,
+  totalReceived,
+  allocatedPaymentSum,
+  unallocatedReceived,
+  usesPaymentAccounting
+) {
+  if (!usesPaymentAccounting) return;
+  const expected = Number(allocatedPaymentSum) + Number(unallocatedReceived);
+  if (!nearlyEqual(totalReceived, expected)) {
+    throw new Error(
+      `GST company ${companyId}: totalReceived (${totalReceived}) must equal ` +
+        `allocated payments (${allocatedPaymentSum}) + unallocatedReceived (${unallocatedReceived}) ` +
+        `when payment-line accounting applies.`
+    );
+  }
+}
+
+/**
+ * Stable fingerprint for gst_filings Option D received-mode columns.
+ */
+export function gstFilingReceivedModeFingerprint(row) {
+  const legacy =
+    row.legacy_received == null || row.legacy_received === ''
+      ? ''
+      : Number(row.legacy_received).toFixed(2);
+  return [
+    row.gst_company_id,
+    row.month,
+    row.payments_present === true || row.payments_present === 't' ? '1' : '0',
+    legacy,
+  ].join('|');
+}
+
+/**
+ * Compare expected vs actual filing received-mode markers (pure).
+ * Detects missing/altered payments_present and legacy_received.
+ */
+export function diffGstFilingReceivedModeRows(expectedRows, actualRows) {
+  const failures = [];
+  const expected = [...(expectedRows || [])]
+    .map((r) => ({
+      ...r,
+      fingerprint: gstFilingReceivedModeFingerprint(r),
+      key: `${r.gst_company_id}\0${r.month}`,
+    }))
+    .sort((a, b) => a.fingerprint.localeCompare(b.fingerprint));
+  const actual = [...(actualRows || [])]
+    .map((r) => ({
+      ...r,
+      fingerprint: gstFilingReceivedModeFingerprint(r),
+      key: `${r.gst_company_id}\0${r.month}`,
+    }))
+    .sort((a, b) => a.fingerprint.localeCompare(b.fingerprint));
+
+  if (expected.length !== actual.length) {
+    failures.push(
+      `gst_filings received-mode count: got ${actual.length}, expected ${expected.length}`
+    );
+  }
+
+  const actualByKey = new Map(actual.map((r) => [r.key, r]));
+  const expectedByKey = new Map(expected.map((r) => [r.key, r]));
+
+  for (const exp of expected) {
+    const got = actualByKey.get(exp.key);
+    if (!got) {
+      failures.push(
+        `gst_filings received-mode missing company=${exp.gst_company_id} month=${exp.month}`
+      );
+      continue;
+    }
+    if (got.fingerprint !== exp.fingerprint) {
+      failures.push(
+        `gst_filings received-mode altered company=${exp.gst_company_id} month=${exp.month}`
+      );
+    }
+  }
+  for (const act of actual) {
+    if (!expectedByKey.has(act.key)) {
+      failures.push(
+        `gst_filings received-mode unexpected company=${act.gst_company_id} month=${act.month}`
+      );
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * Compare expected vs actual payment rows (pure; used by verify + unit tests).
+ * Fail-closed on missing, extra, or altered lines.
+ */
+export function diffGstPaymentRows(expectedRows, actualRows) {
+  const failures = [];
+  const expected = [...(expectedRows || [])]
+    .map((r) => ({
+      ...r,
+      fingerprint: gstPaymentFingerprint(r),
+    }))
+    .sort((a, b) => a.fingerprint.localeCompare(b.fingerprint));
+  const actual = [...(actualRows || [])]
+    .map((r) => ({
+      ...r,
+      fingerprint: gstPaymentFingerprint(r),
+    }))
+    .sort((a, b) => a.fingerprint.localeCompare(b.fingerprint));
+
+  if (expected.length !== actual.length) {
+    failures.push(
+      `gst_payments count: got ${actual.length}, expected ${expected.length}`
+    );
+  }
+
+  const actualById = new Map(actual.map((r) => [r.id, r]));
+  const expectedById = new Map(expected.map((r) => [r.id, r]));
+
+  for (const exp of expected) {
+    const got = actualById.get(exp.id);
+    if (!got) {
+      failures.push(`gst_payments missing id=${exp.id}`);
+      continue;
+    }
+    if (got.fingerprint !== exp.fingerprint) {
+      failures.push(`gst_payments altered id=${exp.id}`);
+    }
+  }
+  for (const act of actual) {
+    if (!expectedById.has(act.id)) {
+      failures.push(`gst_payments unexpected id=${act.id}`);
+    }
+  }
+
+  return failures;
+}
+
 /**
  * Approved portal-password → password_enc rules (portalCrypto.ts).
  */
+export function nearlyEqual(a, b, eps = 1e-6) {
+  return Math.abs(Number(a) - Number(b)) <= eps;
+}
+
 export function toPasswordEnc(record, key) {
   if (record.passwordEnc && isEncryptedPortalPassword(record.passwordEnc)) {
     return record.passwordEnc;
@@ -183,9 +488,18 @@ export function summarizeLedger(state) {
   let gstTax = 0;
   let gstTotal = 0;
   let gstRecv = 0;
+  let gstUnallocated = 0;
+  let gstPayments = 0;
+  let gstPaymentAmountSum = 0;
+  let gstPaymentsPresentTrue = 0;
+  let gstLegacyReceivedPresent = 0;
+  let gstLegacyReceivedSum = 0;
   let passwordEncExpected = 0;
   const itIds = [];
   const gstIds = [];
+  const paymentIds = [];
+  /** @type {Record<string, { paymentCount: number, paymentAmountSum: number, unallocated: number, totalReceived: number }>} */
+  const perCompany = {};
 
   for (const c of clients) {
     if (!c || typeof c !== 'object') throw new Error('Invalid IT client record.');
@@ -214,7 +528,18 @@ export function summarizeLedger(state) {
     }
     gstIds.push(c.id);
     if (recordHasPortalPassword(c)) passwordEncExpected += 1;
-    gstRecv += money(c.totalReceived, 'gst.totalReceived');
+    const totalReceived = money(c.totalReceived, 'gst.totalReceived');
+    gstRecv += totalReceived;
+    const unallocated =
+      c.unallocatedReceived == null
+        ? 0
+        : moneyNonNegative(c.unallocatedReceived, 'gst.unallocatedReceived');
+    gstUnallocated += unallocated;
+
+    let companyPaymentCount = 0;
+    let companyPaymentSum = 0;
+    const usesPaymentAccounting = gstCompanyUsesPaymentAccounting(c);
+
     for (const [k, f] of Object.entries(c.filings || {})) {
       gstFilings += 1;
       filingMonths.add(String(k).trim());
@@ -222,11 +547,51 @@ export function summarizeLedger(state) {
       if (String(f.month || '').trim() !== String(k).trim()) {
         throw new Error('GST filing map key does not match month.');
       }
-      gstFees += money(f.fees, 'gst.fees');
-      gstInt += money(f.interest, 'gst.interest');
-      gstTax += money(f.tax, 'gst.tax');
-      gstTotal += money(f.total, 'gst.total');
+      const fees = money(f.fees, 'gst.fees');
+      const interest = money(f.interest, 'gst.interest');
+      const tax = money(f.tax, 'gst.tax');
+      const total = money(f.total, 'gst.total');
+      if (!nearlyEqual(total, fees + interest + tax)) {
+        throw new Error(
+          `GST filing total must equal fees+interest+tax (company=${c.id} month=${k}).`
+        );
+      }
+      gstFees += fees;
+      gstInt += interest;
+      gstTax += tax;
+      gstTotal += total;
+
+      if (Array.isArray(f.payments)) {
+        gstPaymentsPresentTrue += 1;
+        for (const p of f.payments) {
+          const mapped = mapGstPaymentLine(p, `gst payment ${c.id}/${k}`);
+          gstPayments += 1;
+          gstPaymentAmountSum += mapped.amount;
+          companyPaymentCount += 1;
+          companyPaymentSum += mapped.amount;
+          paymentIds.push(mapped.id);
+        }
+      } else if (f.received != null && f.received !== '') {
+        gstLegacyReceivedPresent += 1;
+        gstLegacyReceivedSum += moneyNonNegative(f.received, 'gst.received');
+      }
     }
+
+    assertGstCompanyTotalReceivedReconciles(
+      c.id,
+      totalReceived,
+      companyPaymentSum,
+      unallocated,
+      usesPaymentAccounting
+    );
+
+    perCompany[c.id] = {
+      paymentCount: companyPaymentCount,
+      paymentAmountSum: companyPaymentSum,
+      unallocated,
+      totalReceived,
+      usesPaymentAccounting,
+    };
   }
 
   if (new Set(itIds).size !== itIds.length) {
@@ -234,6 +599,9 @@ export function summarizeLedger(state) {
   }
   if (new Set(gstIds).size !== gstIds.length) {
     throw new Error('Duplicate GST company ids in ledger.');
+  }
+  if (new Set(paymentIds).size !== paymentIds.length) {
+    throw new Error('Duplicate GST payment ids in ledger.');
   }
 
   const yearLabels = new Set([
@@ -255,6 +623,9 @@ export function summarizeLedger(state) {
       gstMonthsToInsert: monthLabels.size,
       gstClients: gstClients.length,
       gstFilings,
+      gstPayments,
+      gstPaymentsPresentTrue,
+      gstLegacyReceivedPresent,
       passwordEncExpected,
     },
     finance: {
@@ -266,7 +637,12 @@ export function summarizeLedger(state) {
       gstTax,
       gstTotal,
       gstRecv,
+      gstUnallocated,
+      gstPaymentAmountSum,
+      gstLegacyReceivedSum,
     },
+    perCompany,
+    paymentIdsSorted: [...paymentIds].sort(),
     itIdsSorted: [...itIds].sort(),
     gstIdsSorted: [...gstIds].sort(),
     yearLabelsSorted: [...yearLabels].sort(),
@@ -365,11 +741,24 @@ export function buildImportRows(state, key, organizationName) {
 
   const gstCompanies = [];
   const gstFilings = [];
+  const gstPayments = [];
+  const seenPaymentIds = new Set();
+  /** companyId -> Set of non-empty idempotency keys */
+  const idempotencyByCompany = new Map();
+
   for (const c of gstClients) {
     if (typeof c.companyName !== 'string' || !c.companyName.trim()) {
       throw new Error('GST companyName is required.');
     }
+    if (!c.id || typeof c.id !== 'string' || !c.id.trim()) {
+      throw new Error('GST company missing id.');
+    }
     const remark = assertStringOrAbsent(c.remark, 'gst.remark');
+    const unallocated_received =
+      c.unallocatedReceived == null
+        ? 0
+        : moneyNonNegative(c.unallocatedReceived, 'unallocatedReceived');
+
     gstCompanies.push({
       id: c.id,
       company_name: c.companyName,
@@ -381,10 +770,18 @@ export function buildImportRows(state, key, organizationName) {
           : String(c.referenceNumber || ''),
       remark,
       total_received: money(c.totalReceived, 'totalReceived'),
+      unallocated_received,
       password_enc: toPasswordEnc(c, key),
       created_at: parseTimestamp(c.createdAt, 'gstClients.createdAt'),
       updated_at: parseTimestamp(c.updatedAt, 'gstClients.updatedAt'),
     });
+
+    if (!idempotencyByCompany.has(c.id)) {
+      idempotencyByCompany.set(c.id, new Set());
+    }
+    const companyIdem = idempotencyByCompany.get(c.id);
+    const usesPaymentAccounting = gstCompanyUsesPaymentAccounting(c);
+    let companyAllocatedSum = 0;
 
     for (const [monthKey, f] of Object.entries(c.filings || {})) {
       const month = String(monthKey).trim();
@@ -392,20 +789,101 @@ export function buildImportRows(state, key, organizationName) {
         throw new Error('GST filing month mismatch.');
       }
       const unexpected = Object.keys(f).filter(
-        (k) => !['month', 'fees', 'interest', 'tax', 'total'].includes(k)
+        (k) => !GST_FILING_ALLOWED_KEYS.has(k)
       );
       if (unexpected.length) {
-        throw new Error('GST filing has unexpected fields.');
+        throw new Error(
+          `GST filing has unexpected fields (${unexpected.join(', ')}).`
+        );
       }
+
+      const fees = money(f.fees, 'gst.fees');
+      const interest = money(f.interest, 'gst.interest');
+      const tax = money(f.tax, 'gst.tax');
+      const total = money(f.total, 'gst.total');
+      if (!nearlyEqual(total, fees + interest + tax)) {
+        throw new Error(
+          `GST filing total must equal fees+interest+tax (company=${c.id} month=${month}).`
+        );
+      }
+
+      const paymentsPresent = Array.isArray(f.payments);
+      if (
+        Object.prototype.hasOwnProperty.call(f, 'payments') &&
+        !paymentsPresent
+      ) {
+        throw new Error(
+          `GST filing payments must be an array when present (company=${c.id} month=${month}).`
+        );
+      }
+
+      let legacy_received = null;
+      if (!paymentsPresent && f.received != null && f.received !== '') {
+        legacy_received = moneyNonNegative(f.received, 'gst.received');
+      }
+
       gstFilings.push({
         gst_company_id: c.id,
         month,
-        fees: money(f.fees, 'gst.fees'),
-        interest: money(f.interest, 'gst.interest'),
-        tax: money(f.tax, 'gst.tax'),
-        total: money(f.total, 'gst.total'),
+        fees,
+        interest,
+        tax,
+        total,
+        payments_present: paymentsPresent,
+        legacy_received,
       });
+
+      if (!paymentsPresent) {
+        continue;
+      }
+
+      let paymentSum = 0;
+      for (const p of f.payments) {
+        const mapped = mapGstPaymentLine(p, `gst payment ${c.id}/${month}`);
+        if (seenPaymentIds.has(mapped.id)) {
+          throw new Error(
+            `Duplicate GST payment id "${mapped.id}" (fail closed).`
+          );
+        }
+        seenPaymentIds.add(mapped.id);
+
+        if (mapped.idempotency_key) {
+          if (companyIdem.has(mapped.idempotency_key)) {
+            throw new Error(
+              `Duplicate GST payment idempotency key "${mapped.idempotency_key}" for company ${c.id} (fail closed).`
+            );
+          }
+          companyIdem.add(mapped.idempotency_key);
+        }
+
+        paymentSum += mapped.amount;
+        companyAllocatedSum += mapped.amount;
+        gstPayments.push({
+          ...mapped,
+          gst_company_id: c.id,
+          month,
+        });
+      }
+
+      // Payment-mode filings: declared received (if any) must match line sum.
+      // Never persist it as legacy_received.
+      if (f.received != null && f.received !== '') {
+        const declared = money(f.received, 'gst.received');
+        if (!nearlyEqual(declared, paymentSum)) {
+          throw new Error(
+            `GST filing received must equal sum of payment lines (company=${c.id} month=${month}).`
+          );
+        }
+      }
     }
+
+    assertGstCompanyTotalReceivedReconciles(
+      c.id,
+      money(c.totalReceived, 'totalReceived'),
+      companyAllocatedSum,
+      unallocated_received,
+      usesPaymentAccounting
+    );
   }
 
   const passwordEncNonNull =
@@ -426,10 +904,7 @@ export function buildImportRows(state, key, organizationName) {
     itFilings,
     gstCompanies,
     gstFilings,
+    gstPayments,
     passwordEncNonNull,
   };
-}
-
-export function nearlyEqual(a, b, eps = 1e-6) {
-  return Math.abs(Number(a) - Number(b)) <= eps;
 }

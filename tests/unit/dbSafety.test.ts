@@ -4,21 +4,36 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  ALLOWED_IMPORT_VERIFY_DB_NAMES,
   ALLOWED_MIGRATE_DB_NAMES,
+  ALLOWED_REAL_REHEARSAL_DB_NAME,
+  ALLOWED_TEST_DB_NAME,
+  BUSINESS_TABLES,
+  FORBIDDEN_REMOTE_DATABASE_NAMES,
   REMOTE_MIGRATE_ACK_PHRASE,
+  assertBusinessTablesEmpty,
+  assertConfirmEnvOneOf,
   assertRemoteDatabaseTarget,
   assertSafeDatabaseTarget,
   buildPgClientConfig,
   parseDatabaseUrl,
   redactDatabaseUrl,
   resolveDbTargetMode,
+  resolveImportVerifyTarget,
   resolveSslMode,
+  usesPgAuthTestDatabaseUrl,
 } from '../../scripts/db-safety.mjs';
+import {
+  liveLedgerPath,
+  resolveLedgerSourcePath,
+} from '../../scripts/ledger-pg-shared.mjs';
 
 const LOCAL_DEV =
   'postgresql://appuser:s3cret@127.0.0.1:5432/it_gst_management_dev';
 const LOCAL_TEST =
   'postgresql://appuser:s3cret@127.0.0.1:5432/it_gst_management_test';
+const LOCAL_REAL_REHEARSAL =
+  'postgresql://appuser:s3cret@127.0.0.1:5432/it_gst_management_real_rehearsal';
 const REMOTE_URL =
   'postgresql://appuser:s3cret@db.example-managed.example:5432/it_gst_management_prod?sslmode=require';
 
@@ -68,6 +83,195 @@ describe('assertSafeDatabaseTarget (local default)', () => {
       allowedDatabases: ['it_gst_management_test'],
     });
     expect(t.database).toBe('it_gst_management_test');
+  });
+});
+
+describe('import/verify database isolation (Phase 2D / 2J)', () => {
+  it('allowlists dev, test, and real_rehearsal for import/verify', () => {
+    expect([...ALLOWED_IMPORT_VERIFY_DB_NAMES]).toEqual([
+      'it_gst_management_dev',
+      'it_gst_management_test',
+      'it_gst_management_real_rehearsal',
+    ]);
+    expect(ALLOWED_MIGRATE_DB_NAMES).toContain(ALLOWED_TEST_DB_NAME);
+    expect(ALLOWED_MIGRATE_DB_NAMES).toContain(ALLOWED_REAL_REHEARSAL_DB_NAME);
+    expect(FORBIDDEN_REMOTE_DATABASE_NAMES).toContain(
+      ALLOWED_REAL_REHEARSAL_DB_NAME
+    );
+    expect(usesPgAuthTestDatabaseUrl(ALLOWED_TEST_DB_NAME)).toBe(true);
+    expect(usesPgAuthTestDatabaseUrl(ALLOWED_REAL_REHEARSAL_DB_NAME)).toBe(
+      true
+    );
+    expect(usesPgAuthTestDatabaseUrl('it_gst_management_dev')).toBe(false);
+  });
+
+  it('assertConfirmEnvOneOf accepts allowlisted names and refuses others', () => {
+    const prev = process.env.DB_IMPORT_CONFIRM;
+    try {
+      process.env.DB_IMPORT_CONFIRM = 'it_gst_management_test';
+      expect(
+        assertConfirmEnvOneOf('DB_IMPORT_CONFIRM', ALLOWED_IMPORT_VERIFY_DB_NAMES)
+      ).toBe('it_gst_management_test');
+      process.env.DB_IMPORT_CONFIRM = ALLOWED_REAL_REHEARSAL_DB_NAME;
+      expect(
+        assertConfirmEnvOneOf('DB_IMPORT_CONFIRM', ALLOWED_IMPORT_VERIFY_DB_NAMES)
+      ).toBe(ALLOWED_REAL_REHEARSAL_DB_NAME);
+      process.env.DB_IMPORT_CONFIRM = 'it_gst_management_prod';
+      expect(() =>
+        assertConfirmEnvOneOf('DB_IMPORT_CONFIRM', ALLOWED_IMPORT_VERIFY_DB_NAMES)
+      ).toThrow(/one of/);
+      process.env.DB_IMPORT_CONFIRM = 'unknown_db';
+      expect(() =>
+        assertConfirmEnvOneOf('DB_IMPORT_CONFIRM', ALLOWED_IMPORT_VERIFY_DB_NAMES)
+      ).toThrow(/one of/);
+    } finally {
+      if (prev === undefined) delete process.env.DB_IMPORT_CONFIRM;
+      else process.env.DB_IMPORT_CONFIRM = prev;
+    }
+  });
+
+  it('resolveImportVerifyTarget allows test via PG_AUTH_TEST_DATABASE_URL', () => {
+    const t = resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+      DB_IMPORT_CONFIRM: 'it_gst_management_test',
+      PG_AUTH_TEST_DATABASE_URL: LOCAL_TEST,
+    } as NodeJS.ProcessEnv);
+    expect(t.database).toBe('it_gst_management_test');
+    expect(t.confirm).toBe('it_gst_management_test');
+    expect(t.mode).toBe('test');
+  });
+
+  it('resolveImportVerifyTarget allows real_rehearsal via PG_AUTH_TEST_DATABASE_URL', () => {
+    const t = resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+      DB_IMPORT_CONFIRM: ALLOWED_REAL_REHEARSAL_DB_NAME,
+      PG_AUTH_TEST_DATABASE_URL: LOCAL_REAL_REHEARSAL,
+      DATABASE_URL: LOCAL_DEV,
+    } as NodeJS.ProcessEnv);
+    expect(t.database).toBe(ALLOWED_REAL_REHEARSAL_DB_NAME);
+    expect(t.confirm).toBe(ALLOWED_REAL_REHEARSAL_DB_NAME);
+    expect(t.mode).toBe('real_rehearsal');
+  });
+
+  it('resolveImportVerifyTarget allows dev via DATABASE_URL', () => {
+    const t = resolveImportVerifyTarget('DB_VERIFY_CONFIRM', {
+      DB_VERIFY_CONFIRM: 'it_gst_management_dev',
+      DATABASE_URL: LOCAL_DEV,
+    } as NodeJS.ProcessEnv);
+    expect(t.database).toBe('it_gst_management_dev');
+    expect(t.mode).toBe('dev');
+  });
+
+  it('dev confirm is not accepted as a test/rehearsal PG_AUTH_TEST target', () => {
+    expect(() =>
+      resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+        DB_IMPORT_CONFIRM: ALLOWED_REAL_REHEARSAL_DB_NAME,
+        PG_AUTH_TEST_DATABASE_URL: LOCAL_DEV,
+      } as NodeJS.ProcessEnv)
+    ).toThrow(/Refusing database/);
+    expect(() =>
+      resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+        DB_IMPORT_CONFIRM: 'it_gst_management_test',
+        PG_AUTH_TEST_DATABASE_URL: LOCAL_DEV,
+      } as NodeJS.ProcessEnv)
+    ).toThrow(/Refusing database/);
+  });
+
+  it('refuses production-like and unknown database names for import/verify', () => {
+    expect(() =>
+      resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+        DB_IMPORT_CONFIRM: 'it_gst_management_prod',
+        DATABASE_URL: REMOTE_URL,
+      } as NodeJS.ProcessEnv)
+    ).toThrow(/one of/);
+
+    expect(() =>
+      resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+        DB_IMPORT_CONFIRM: 'it_gst_management_staging',
+        DATABASE_URL: LOCAL_DEV,
+      } as NodeJS.ProcessEnv)
+    ).toThrow(/one of/);
+
+    expect(() =>
+      resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+        DB_IMPORT_CONFIRM: 'it_gst_management_test',
+        PG_AUTH_TEST_DATABASE_URL:
+          'postgresql://u:p@127.0.0.1:5432/it_gst_management_prod',
+      } as NodeJS.ProcessEnv)
+    ).toThrow(/Refusing database/);
+  });
+
+  it('wrong confirmation vs URL database is refused', () => {
+    expect(() =>
+      resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+        DB_IMPORT_CONFIRM: ALLOWED_REAL_REHEARSAL_DB_NAME,
+        PG_AUTH_TEST_DATABASE_URL: LOCAL_TEST,
+      } as NodeJS.ProcessEnv)
+    ).toThrow(/Refusing database|does not match/);
+  });
+
+  it('test and rehearsal confirms never fall back to DATABASE_URL', () => {
+    expect(() =>
+      resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+        DB_IMPORT_CONFIRM: 'it_gst_management_test',
+        DATABASE_URL: LOCAL_DEV,
+        PG_AUTH_TEST_DATABASE_URL: '',
+      } as NodeJS.ProcessEnv)
+    ).toThrow(/PG_AUTH_TEST_DATABASE_URL/);
+
+    expect(() =>
+      resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+        DB_IMPORT_CONFIRM: ALLOWED_REAL_REHEARSAL_DB_NAME,
+        DATABASE_URL: LOCAL_REAL_REHEARSAL,
+        PG_AUTH_TEST_DATABASE_URL: '',
+      } as NodeJS.ProcessEnv)
+    ).toThrow(/PG_AUTH_TEST_DATABASE_URL/);
+  });
+
+  it('refuses non-loopback hosts for test/rehearsal targets', () => {
+    expect(() =>
+      resolveImportVerifyTarget('DB_IMPORT_CONFIRM', {
+        DB_IMPORT_CONFIRM: ALLOWED_REAL_REHEARSAL_DB_NAME,
+        PG_AUTH_TEST_DATABASE_URL:
+          'postgresql://u:p@db.example.com:5432/it_gst_management_real_rehearsal',
+      } as NodeJS.ProcessEnv)
+    ).toThrow(/localhost|127\.0\.0\.1/i);
+  });
+
+  it('assertBusinessTablesEmpty refuses non-empty business tables', async () => {
+    const client = {
+      query: async (sql: string, params?: unknown[]) => {
+        if (/information_schema\.tables/i.test(sql)) {
+          return { rowCount: 1, rows: [{ '?column?': 1 }] };
+        }
+        if (/COUNT\(\*\)/i.test(sql)) {
+          const table = String(sql);
+          // Simulate organizations already populated.
+          if (/FROM organizations\b/i.test(table)) {
+            return { rows: [{ n: '3' }] };
+          }
+          return { rows: [{ n: '0' }] };
+        }
+        return { rows: [] };
+      },
+    };
+    await expect(assertBusinessTablesEmpty(client)).rejects.toThrow(
+      /already contain rows|organizations/
+    );
+  });
+
+  it('empty-check table list includes password_reset_challenges', () => {
+    expect(BUSINESS_TABLES).toContain('password_reset_challenges');
+    expect(BUSINESS_TABLES).toContain('gst_payments');
+  });
+
+  it('live data/ledger.json remains prohibited as LEDGER_IMPORT_PATH', () => {
+    const prev = process.env.LEDGER_IMPORT_PATH;
+    try {
+      process.env.LEDGER_IMPORT_PATH = liveLedgerPath();
+      expect(() => resolveLedgerSourcePath()).toThrow(/live data\/ledger\.json/i);
+    } finally {
+      if (prev === undefined) delete process.env.LEDGER_IMPORT_PATH;
+      else process.env.LEDGER_IMPORT_PATH = prev;
+    }
   });
 });
 
@@ -257,6 +461,9 @@ describe('SSL helpers', () => {
   it('local allowlist constant still includes only known local DBs', () => {
     expect(ALLOWED_MIGRATE_DB_NAMES).toContain('it_gst_management_dev');
     expect(ALLOWED_MIGRATE_DB_NAMES).toContain('it_gst_management_test');
+    expect(ALLOWED_MIGRATE_DB_NAMES).toContain(
+      'it_gst_management_real_rehearsal'
+    );
     expect(ALLOWED_MIGRATE_DB_NAMES).not.toContain('it_gst_management_prod');
   });
 });

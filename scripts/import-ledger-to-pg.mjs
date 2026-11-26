@@ -1,24 +1,24 @@
 /**
- * Phase 2 — import frozen ledger JSON into it_gst_management_dev.
+ * Phase 2 — import frozen ledger JSON into an allowlisted local database.
+ * Allowed confirms: it_gst_management_dev | it_gst_management_test | it_gst_management_real_rehearsal.
  * One transaction. Refuses if any business table has rows.
  * Never truncates/deletes. Never modifies the JSON source.
  * Never logs secrets, PAN, phone, or ciphertext.
  *
  * Run via: npm run import:ledger:pg
- * Requires: DB_IMPORT_CONFIRM=it_gst_management_dev
+ * Requires: DB_IMPORT_CONFIRM=it_gst_management_dev|it_gst_management_test|it_gst_management_real_rehearsal
+ * Test/rehearsal targets use PG_AUTH_TEST_DATABASE_URL (never DATABASE_URL fallback).
  */
 import 'dotenv/config';
 import pg from 'pg';
 import { loadPortalEncryptionKey } from '../portalCrypto.ts';
 import {
-  ALLOWED_DB_NAME,
   DEFAULT_IMPORT_ORG_NAME,
   IMPORT_ADVISORY_LOCK_KEY1,
   IMPORT_ADVISORY_LOCK_KEY2,
   assertBusinessTablesEmpty,
-  assertConfirmEnv,
-  assertSafeDatabaseTarget,
   redactDatabaseUrl,
+  resolveImportVerifyTarget,
 } from './db-safety.mjs';
 import {
   buildImportRows,
@@ -27,8 +27,6 @@ import {
 } from './ledger-pg-shared.mjs';
 
 async function main() {
-  assertConfirmEnv('DB_IMPORT_CONFIRM', ALLOWED_DB_NAME);
-
   const keyStatus = loadPortalEncryptionKey();
   if (!keyStatus.ok) {
     throw new Error(
@@ -36,12 +34,13 @@ async function main() {
     );
   }
 
-  const { connectionString, host, database } = assertSafeDatabaseTarget(
-    process.env.DATABASE_URL
-  );
+  const { connectionString, host, database, confirm, clientConfig } =
+    resolveImportVerifyTarget('DB_IMPORT_CONFIRM');
 
-  console.info(`[import:ledger] target host=${host} database=${database}`);
-  console.info(`[import:ledger] DATABASE_URL=${redactDatabaseUrl(connectionString)}`);
+  console.info(
+    `[import:ledger] target host=${host} database=${database} confirm=${confirm}`
+  );
+  console.info(`[import:ledger] url=${redactDatabaseUrl(connectionString)}`);
 
   const { state, sourcePath, byteLength } = loadFrozenLedger();
   console.info(
@@ -50,7 +49,7 @@ async function main() {
 
   const summary = summarizeLedger(state);
   console.info(
-    `[import:ledger] preflight counts clients=${summary.counts.clients} itFilings=${summary.counts.itFilings} gstClients=${summary.counts.gstClients} gstFilings=${summary.counts.gstFilings} years=${summary.counts.assessmentYearsToInsert} months=${summary.counts.gstMonthsToInsert} passwordEncExpected=${summary.counts.passwordEncExpected}`
+    `[import:ledger] preflight counts clients=${summary.counts.clients} itFilings=${summary.counts.itFilings} gstClients=${summary.counts.gstClients} gstFilings=${summary.counts.gstFilings} gstPayments=${summary.counts.gstPayments} years=${summary.counts.assessmentYearsToInsert} months=${summary.counts.gstMonthsToInsert} passwordEncExpected=${summary.counts.passwordEncExpected}`
   );
 
   const orgName = (process.env.IMPORT_ORG_NAME || DEFAULT_IMPORT_ORG_NAME).trim();
@@ -63,12 +62,14 @@ async function main() {
     );
   }
 
-  const client = new pg.Client({ connectionString });
+  const client = new pg.Client(clientConfig);
   try {
     await client.connect();
     const connectedDb = (await client.query('SELECT current_database() AS db')).rows[0].db;
-    if (connectedDb !== ALLOWED_DB_NAME) {
-      throw new Error(`Connected database is "${connectedDb}", expected "${ALLOWED_DB_NAME}".`);
+    if (connectedDb !== confirm) {
+      throw new Error(
+        `Connected database is "${connectedDb}", expected "${confirm}".`
+      );
     }
 
     await client.query('BEGIN');
@@ -148,9 +149,10 @@ async function main() {
         await client.query(
           `INSERT INTO gst_companies (
              id, organization_id, company_name, portal_user_id, phone, reference_number,
-             remark, total_received, password_enc, created_at, updated_at, row_version
+             remark, total_received, unallocated_received, password_enc,
+             created_at, updated_at, row_version
            ) VALUES (
-             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1
+             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,1
            )`,
           [
             c.id,
@@ -161,6 +163,7 @@ async function main() {
             c.reference_number,
             c.remark,
             c.total_received,
+            c.unallocated_received,
             c.password_enc,
             c.created_at,
             c.updated_at,
@@ -171,8 +174,9 @@ async function main() {
       for (const f of rows.gstFilings) {
         await client.query(
           `INSERT INTO gst_filings (
-             organization_id, gst_company_id, month, fees, interest, tax, total
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+             organization_id, gst_company_id, month, fees, interest, tax, total,
+             payments_present, legacy_received
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [
             organizationId,
             f.gst_company_id,
@@ -181,6 +185,32 @@ async function main() {
             f.interest,
             f.tax,
             f.total,
+            f.payments_present === true,
+            f.legacy_received,
+          ]
+        );
+      }
+
+      for (const p of rows.gstPayments) {
+        await client.query(
+          `INSERT INTO gst_payments (
+             id, organization_id, gst_company_id, month, amount, payment_date,
+             payment_mode, reference, idempotency_key, created_at, updated_at
+           ) VALUES (
+             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11
+           )`,
+          [
+            p.id,
+            organizationId,
+            p.gst_company_id,
+            p.month,
+            p.amount,
+            p.payment_date,
+            p.payment_mode,
+            p.reference,
+            p.idempotency_key,
+            p.created_at,
+            p.updated_at,
           ]
         );
       }
@@ -194,6 +224,7 @@ async function main() {
         it_filings: await count(client, 'it_filings'),
         gst_companies: await count(client, 'gst_companies'),
         gst_filings: await count(client, 'gst_filings'),
+        gst_payments: await count(client, 'gst_payments'),
         password_enc_it: await countWhere(
           client,
           'it_clients',
@@ -213,6 +244,7 @@ async function main() {
       assertEq(checks.it_filings, rows.itFilings.length, 'it_filings');
       assertEq(checks.gst_companies, rows.gstCompanies.length, 'gst_companies');
       assertEq(checks.gst_filings, rows.gstFilings.length, 'gst_filings');
+      assertEq(checks.gst_payments, rows.gstPayments.length, 'gst_payments');
       assertEq(
         checks.password_enc_it + checks.password_enc_gst,
         rows.passwordEncNonNull,
@@ -232,7 +264,7 @@ async function main() {
 
       await client.query('COMMIT');
       console.info(
-        `[import:ledger] COMMIT ok orgRows=1 itClients=${checks.it_clients} itFilings=${checks.it_filings} gstCompanies=${checks.gst_companies} gstFilings=${checks.gst_filings} years=${checks.assessment_years} months=${checks.gst_months} passwordEnc=${checks.password_enc_it + checks.password_enc_gst}`
+        `[import:ledger] COMMIT ok orgRows=1 itClients=${checks.it_clients} itFilings=${checks.it_filings} gstCompanies=${checks.gst_companies} gstFilings=${checks.gst_filings} gstPayments=${checks.gst_payments} years=${checks.assessment_years} months=${checks.gst_months} passwordEnc=${checks.password_enc_it + checks.password_enc_gst}`
       );
       console.info(
         '[import:ledger] Application storage is unchanged (JSON). Run npm run verify:ledger:pg next.'
