@@ -40,7 +40,8 @@ function createOrgStore() {
     return store[table].filter((r) => r.organization_id === orgId);
   }
 
-  function fingerprint(orgId: string): string {
+  /** Raw revision material (matches SQL string_agg parts); hashed by production code. */
+  function fingerprintMaterial(orgId: string): string {
     const parts = [
       ...scoped('assessment_years', orgId).map((r) => `ay:${r.label}`),
       ...scoped('gst_months', orgId).map((r) => `gm:${r.label}`),
@@ -49,7 +50,7 @@ function createOrgStore() {
       ),
       ...scoped('it_filings', orgId).map(
         (r) =>
-          `itf:${r.it_client_id}:${r.assessment_year}:${r.fees}:${r.received}:${r.balance}`
+          `itf:${r.it_client_id}:${r.assessment_year}:${r.fees}:${r.received}:${r.balance}:${r.payment_type}:${r.payment_receive_date}:${r.filing_date}`
       ),
       ...scoped('gst_companies', orgId).map(
         (r) => `gst:${r.id}:${r.updated_at}:${r.total_received}`
@@ -59,7 +60,11 @@ function createOrgStore() {
           `gf:${r.gst_company_id}:${r.month}:${r.fees}:${r.interest}:${r.tax}:${r.total}`
       ),
     ].sort();
-    return createHash('md5').update(parts.join('|')).digest('hex');
+    return parts.join('|');
+  }
+
+  function fingerprint(orgId: string): string {
+    return createHash('sha256').update(fingerprintMaterial(orgId)).digest('hex');
   }
 
   function createPool(): DbPool & { store: typeof store } {
@@ -79,10 +84,10 @@ function createOrgStore() {
         if (/pg_advisory_xact_lock/i.test(sql)) {
           return { rowCount: 1, rows: [{ pg_advisory_xact_lock: '' }] };
         }
-        if (/md5\(COALESCE\(string_agg/i.test(sql)) {
+        if (/COALESCE\(string_agg\(part/i.test(sql) && /AS fingerprint/i.test(sql)) {
           return {
             rowCount: 1,
-            rows: [{ revision: fingerprint(String(v[0])) }],
+            rows: [{ fingerprint: fingerprintMaterial(String(v[0])) }],
           };
         }
 

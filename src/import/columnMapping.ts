@@ -71,7 +71,7 @@ export function suggestColumnMapping(
 }
 
 export function mappingFingerprint(mapping: ColumnMapping): string {
-  const keys = Object.keys(mapping).sort();
+  const keys = Object.keys(mapping).sort((a, b) => a.localeCompare(b));
   return keys.map((k) => `${k}=${mapping[k] ?? ''}`).join('|');
 }
 

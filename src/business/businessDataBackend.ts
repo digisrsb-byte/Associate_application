@@ -18,8 +18,9 @@ export type ResolvedBusinessDataBackend = {
  */
 export function resolveBusinessDataBackend(
   env: NodeJS.ProcessEnv = process.env,
-  authBackend: ResolvedAuthBackend = { kind: 'json', organizationId: null }
+  authBackend?: ResolvedAuthBackend
 ): ResolvedBusinessDataBackend {
+  const auth = authBackend ?? { kind: 'json' as const, organizationId: null };
   const raw = String(env.BUSINESS_DATA_BACKEND || 'json')
     .trim()
     .toLowerCase();
@@ -34,7 +35,7 @@ export function resolveBusinessDataBackend(
     );
   }
 
-  if (authBackend.kind !== 'postgres' || !authBackend.organizationId) {
+  if (auth.kind !== 'postgres' || !auth.organizationId) {
     throw new Error(
       'BUSINESS_DATA_BACKEND=postgres requires AUTH_BACKEND=postgres and AUTH_ORGANIZATION_ID. Refusing to start.'
     );
@@ -49,6 +50,6 @@ export function resolveBusinessDataBackend(
 
   return {
     kind: 'postgres',
-    organizationId: authBackend.organizationId,
+    organizationId: auth.organizationId,
   };
 }

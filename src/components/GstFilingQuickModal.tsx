@@ -306,9 +306,15 @@ export function GstFilingQuickModal({
       } else {
         if (!createIdempotencyKeyRef.current) {
           createIdempotencyKeyRef.current =
-            typeof crypto !== 'undefined' && crypto.randomUUID
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
               ? crypto.randomUUID()
-              : `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              : (() => {
+                  const bytes = new Uint8Array(16);
+                  crypto.getRandomValues(bytes);
+                  return `idem-${Array.from(bytes, (b) =>
+                    b.toString(16).padStart(2, '0')
+                  ).join('')}`;
+                })();
         }
         await onRecordPayment(target.company.id, target.month, {
           ...payload,

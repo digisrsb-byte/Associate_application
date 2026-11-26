@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import type {
   ClientRecord,
   FilingRecord,
@@ -80,7 +81,7 @@ export function applyItImportToLedger(
   const now = options?.now || new Date().toISOString();
   const newId =
     options?.newId ||
-    (() => `cli-${Math.random().toString(36).slice(2, 10)}`);
+    (() => `cli-${crypto.randomUUID().slice(0, 8)}`);
 
   const byPan = new Map(
     state.clients.map((c) => [c.pan.toUpperCase(), c] as const)
@@ -186,7 +187,7 @@ export function applyGstImportToLedger(
   const now = options?.now || new Date().toISOString();
   const newId =
     options?.newId ||
-    (() => `gst-${Math.random().toString(36).slice(2, 10)}`);
+    (() => `gst-${crypto.randomUUID().slice(0, 8)}`);
 
   const byUser = new Map(
     state.gstClients.map((c) => [c.userId.toLowerCase(), c] as const)

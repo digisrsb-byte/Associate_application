@@ -4,6 +4,7 @@ import { suggestColumnMapping, validateMapping } from '../../src/import/columnMa
 import { parseItSheetWithMapping } from '../../src/import/itMappedParse.ts';
 import { parseGstSheetWithMapping } from '../../src/import/gstMappedParse.ts';
 import {
+  canCommit,
   validateGstImport,
   validateItImport,
 } from '../../src/import/validateImport.ts';
@@ -399,5 +400,456 @@ describe('Phase 6 import engine', () => {
     const parsed = parseItSheetWithMapping(wb, 'All Data', sug.mapping);
     expect(parsed.duplicateFilingRows).toBe(1);
     expect(parsed.clients[0].filings['AY 2024-25'].fees).toBe(200);
+  });
+
+  it('validates IT/GST edge cases and canCommit gates', async () => {
+    const itHeadings = [
+      'Assessment Year',
+      'Client ID',
+      'Name',
+      'Filing Date',
+      'Amount Billed',
+      'Received',
+      'Outstanding',
+      'Payment Mode',
+      'Payment Date',
+    ];
+    const itSug = suggestColumnMapping('it', itHeadings);
+    const badIt = parseItSheetWithMapping(
+      await itWorkbook({
+        rows: [
+          ['AY 2024-25', 'BADPAN', '', '', 100, 0, 100, '', ''],
+          ['AY 2024-25', 'AAAPA1234A', '', '', 100, 0, 100, '', ''],
+          ['AY 2024-25', 'AAAPA1234A', 'Ok Client', '', 100, 40, 99, '', ''],
+        ],
+      }),
+      'All Data',
+      itSug.mapping
+    );
+    const seeded = emptyLedger();
+    seeded.clients.push({
+      id: 'c1',
+      pan: 'AAAPA1234A',
+      name: 'Existing',
+      phone: '',
+      referenceNumber: '',
+      otherMobiles: '',
+      nameVariants: '',
+      filings: {
+        'AY 2024-25': {
+          assessmentYear: 'AY 2024-25',
+          filingDate: '',
+          fees: 50,
+          received: 0,
+          balance: 50,
+          paymentType: '',
+          paymentReceiveDate: '',
+        },
+      },
+      createdAt: '',
+      updatedAt: '',
+    });
+    const itVal = validateItImport(
+      badIt,
+      seeded,
+      { mode: 'merge', onConflict: 'skip' },
+      itHeadings,
+      itSug.mapping
+    );
+    expect(itVal.diff.invalidRecords).toBeGreaterThanOrEqual(1);
+    expect(itVal.finance.itBalanceDiscrepancies).toBeGreaterThanOrEqual(1);
+    expect(canCommit('it', itVal)).toBe(true);
+
+    const gstHeadings = [
+      'Month',
+      'Company Name',
+      'User ID',
+      'Password',
+      'Phone',
+      'Fees',
+      'Interest',
+      'Tax',
+      'Total',
+      'Total Recd',
+      'GSTIN',
+    ];
+    const gstWb = await gstWorkbook({
+      headings: gstHeadings,
+      rows: [
+        ['Apr 2026', '', '', '', '', 1, 0, 0, 1, 0, ''],
+        [
+          'Apr 2026',
+          'Exist Co',
+          'existuser',
+          '',
+          '',
+          10,
+          1,
+          1,
+          999,
+          0,
+          'NOTAGSTIN',
+        ],
+        [
+          'May 2026',
+          'Exist Co',
+          'existuser',
+          'pw',
+          '',
+          5,
+          0,
+          0,
+          5,
+          0,
+          '',
+        ],
+      ],
+    });
+    const gstSug2 = suggestColumnMapping('gst', gstHeadings);
+    const gstMap = { ...gstSug2.mapping, gstin: 'GSTIN' };
+    const gstParsed = parseGstSheetWithMapping(gstWb, 'All Data', gstMap);
+    gstParsed.companies.push({
+      userId: '',
+      companyName: '',
+      phone: '',
+      referenceNumber: '',
+      remark: '',
+      password: '',
+      totalReceived: 0,
+      filings: {},
+    });
+    const gstLedger = emptyLedger();
+    gstLedger.gstClients.push({
+      id: 'g1',
+      companyName: 'Exist Co',
+      userId: 'existuser',
+      phone: '',
+      referenceNumber: '',
+      remark: '',
+      totalReceived: 0,
+      filings: {
+        'Apr 2026': { fees: 1, interest: 0, tax: 0, total: 1 },
+      },
+      createdAt: '',
+      updatedAt: '',
+    });
+    const gstValUpdate = validateGstImport(
+      gstParsed,
+      gstLedger,
+      { mode: 'merge', onConflict: 'update' },
+      gstHeadings,
+      gstMap
+    );
+    expect(gstValUpdate.diff.invalidRecords).toBeGreaterThanOrEqual(1);
+    expect(gstValUpdate.finance.gstTotalDiscrepancies).toBeGreaterThanOrEqual(1);
+    expect(gstValUpdate.diff.filingsToUpdate).toBeGreaterThanOrEqual(1);
+    expect(gstValUpdate.diff.filingsToAdd).toBeGreaterThanOrEqual(1);
+    expect(canCommit('gst', gstValUpdate)).toBe(true);
+
+    const gstValSkip = validateGstImport(
+      gstParsed,
+      gstLedger,
+      { mode: 'merge', onConflict: 'skip' },
+      gstHeadings,
+      gstMap
+    );
+    expect(gstValSkip.diff.filingsToSkip).toBeGreaterThanOrEqual(1);
+
+    const emptyGst = validateGstImport(
+      {
+        companies: [],
+        issues: [
+          {
+            level: 'error',
+            code: 'sheet_missing',
+            message: 'missing',
+          },
+        ],
+        rowsRead: 0,
+        rowsSkipped: 0,
+        duplicateFilingRows: 0,
+      },
+      emptyLedger(),
+      { mode: 'merge', onConflict: 'update' },
+      gstHeadings,
+      gstMap
+    );
+    expect(canCommit('gst', emptyGst)).toBe(false);
+  });
+
+  it('covers GST parse edge paths: missing sheet, skips, merges, duplicates', async () => {
+    const headings = [
+      'Month',
+      'Company Name',
+      'User ID',
+      'Password',
+      'Phone',
+      'Reference',
+      'Remark',
+      'Fees',
+      'Interest',
+      'Tax',
+      'Total',
+      'Total Recd',
+      'GSTIN',
+    ];
+    const sug = suggestColumnMapping('gst', headings);
+    const mapping = {
+      ...sug.mapping,
+      referenceNumber: 'Reference',
+      remark: 'Remark',
+      gstin: 'GSTIN',
+    };
+
+    const missing = parseGstSheetWithMapping(
+      await gstWorkbook(),
+      'No Such Sheet',
+      mapping
+    );
+    expect(missing.issues[0]?.code).toBe('sheet_missing');
+    expect(missing.companies).toHaveLength(0);
+
+    const wb = await gstWorkbook({
+      headings,
+      rows: [
+        ['', '', '', '', '', '', '', '', '', '', '', '', ''],
+        ['Apr 2026', 'No User Co', '', '', '', '', '', 1, 0, 0, 1, 0, ''],
+        ['', 'Bad Month Co', 'badmonth', '', '', '', '', 1, 0, 0, 1, 0, ''],
+        [
+          'Apr 2026',
+          'First Name',
+          'mergeuser',
+          'pass1',
+          '111',
+          'REF1',
+          'r1',
+          10,
+          1,
+          1,
+          12,
+          5,
+          '27AAAAA0000A1Z5',
+        ],
+        [
+          'May 2026',
+          'Updated Name',
+          'mergeuser',
+          'pass2',
+          '222',
+          'REF2',
+          'r2',
+          20,
+          0,
+          0,
+          20,
+          50,
+          '27AAAAA0000A1Z5',
+        ],
+        [
+          'May 2026',
+          'Updated Name',
+          'mergeuser',
+          '',
+          '',
+          '',
+          '',
+          30,
+          0,
+          0,
+          30,
+          60,
+          '',
+        ],
+      ],
+    });
+    const parsed = parseGstSheetWithMapping(wb, 'All Data', mapping);
+    expect(parsed.rowsSkipped).toBeGreaterThanOrEqual(2);
+    expect(parsed.issues.some((i) => i.code === 'missing_user_id')).toBe(true);
+    expect(parsed.issues.some((i) => i.code === 'invalid_month')).toBe(true);
+    expect(parsed.duplicateFilingRows).toBe(1);
+    expect(parsed.companies).toHaveLength(1);
+    const c = parsed.companies[0];
+    expect(c.companyName).toBe('Updated Name');
+    expect(c.password).toBe('pass2');
+    expect(c.phone).toBe('222');
+    expect(c.referenceNumber).toBe('REF2');
+    expect(c.remark).toBe('r2');
+    expect(c.totalReceived).toBe(60);
+    expect(c.filings['May 2026'].fees).toBe(30);
+  });
+
+  it('updates existing IT client fields, adds years, and replace-mode prunes', () => {
+    const ledger = emptyLedger();
+    applyItImportToLedger(
+      ledger,
+      [
+        {
+          pan: 'AAAPA1234A',
+          name: 'Old',
+          phone: '111',
+          otherMobiles: '',
+          nameVariants: '',
+          filings: {
+            'AY 2024-25': {
+              assessmentYear: 'AY 2024-25',
+              filingDate: '2024-07-01',
+              fees: 100,
+              received: 0,
+              outstanding: 100,
+              paymentType: '',
+              paymentReceiveDate: '',
+              sourceRow: 2,
+            },
+          },
+        },
+        {
+          pan: 'BBBPB1234B',
+          name: 'Other',
+          phone: '',
+          otherMobiles: '',
+          nameVariants: '',
+          filings: {
+            'AY 2024-25': {
+              assessmentYear: 'AY 2024-25',
+              filingDate: '',
+              fees: 10,
+              received: 0,
+              outstanding: 10,
+              paymentType: '',
+              paymentReceiveDate: '',
+              sourceRow: 3,
+            },
+          },
+        },
+      ],
+      { mode: 'merge', onConflict: 'update' }
+    );
+
+    const upd = applyItImportToLedger(
+      ledger,
+      [
+        {
+          pan: 'AAAPA1234A',
+          name: 'New Name',
+          phone: '999',
+          otherMobiles: '888',
+          nameVariants: 'Alias',
+          filings: {
+            'AY 2024-25': {
+              assessmentYear: 'AY 2024-25',
+              filingDate: '2024-08-01',
+              fees: 150,
+              received: 50,
+              outstanding: 100,
+              paymentType: 'UPI',
+              paymentReceiveDate: '2024-08-02',
+              sourceRow: 2,
+            },
+            'AY 2025-26': {
+              assessmentYear: 'AY 2025-26',
+              filingDate: '',
+              fees: 20,
+              received: 0,
+              outstanding: 20,
+              paymentType: '',
+              paymentReceiveDate: '',
+              sourceRow: 4,
+            },
+          },
+        },
+      ],
+      { mode: 'replace', onConflict: 'update' }
+    );
+    expect(upd.clientsUpdated).toBe(1);
+    expect(upd.filingsUpdated).toBe(1);
+    expect(upd.filingsAdded).toBe(1);
+    expect(ledger.clients).toHaveLength(1);
+    expect(ledger.clients[0].name).toBe('New Name');
+    expect(ledger.clients[0].phone).toBe('999');
+    expect(ledger.clients[0].otherMobiles).toBe('888');
+    expect(ledger.clients[0].nameVariants).toBe('Alias');
+    expect(ledger.clients[0].filings['AY 2025-26'].fees).toBe(20);
+  });
+
+  it('updates existing GST company fields, skip conflicts, and replace-mode prunes', () => {
+    const ledger = emptyLedger();
+    applyGstImportToLedger(
+      ledger,
+      [
+        {
+          userId: 'keep-user',
+          companyName: 'Keep Co',
+          phone: '111',
+          referenceNumber: 'R1',
+          remark: 'old',
+          totalReceived: 5,
+          filings: { 'Apr 2026': { fees: 10, interest: 1, tax: 1 } },
+        },
+        {
+          userId: 'drop-user',
+          companyName: 'Drop Co',
+          phone: '',
+          referenceNumber: '',
+          remark: '',
+          totalReceived: 0,
+          filings: { 'Apr 2026': { fees: 1, interest: 0, tax: 0 } },
+        },
+      ],
+      { mode: 'merge', onConflict: 'update' }
+    );
+
+    const skipped = applyGstImportToLedger(
+      ledger,
+      [
+        {
+          userId: 'keep-user',
+          companyName: 'Keep Co',
+          phone: '111',
+          referenceNumber: 'R1',
+          remark: 'old',
+          totalReceived: 5,
+          filings: { 'Apr 2026': { fees: 99, interest: 0, tax: 0 } },
+        },
+      ],
+      { mode: 'merge', onConflict: 'skip' }
+    );
+    expect(skipped.filingsSkipped).toBe(1);
+    expect(ledger.gstClients.find((c) => c.userId === 'keep-user')!.filings[
+      'Apr 2026'
+    ].fees).toBe(10);
+
+    const replaced = applyGstImportToLedger(
+      ledger,
+      [
+        {
+          userId: 'keep-user',
+          companyName: 'Keep Co Renamed',
+          phone: '222',
+          referenceNumber: 'R2',
+          remark: 'new',
+          totalReceived: 50,
+          passwordEnc: 'enc:v1:x',
+          filings: {
+            'Apr 2026': { fees: 20, interest: 2, tax: 2 },
+            'May 2026': { fees: 3, interest: 0, tax: 0 },
+          },
+        },
+      ],
+      { mode: 'replace', onConflict: 'update' }
+    );
+    expect(replaced.clientsUpdated).toBe(1);
+    expect(replaced.filingsUpdated).toBe(1);
+    expect(replaced.filingsAdded).toBe(1);
+    expect(ledger.gstClients).toHaveLength(1);
+    const kept = ledger.gstClients[0];
+    expect(kept.companyName).toBe('Keep Co Renamed');
+    expect(kept.phone).toBe('222');
+    expect(kept.referenceNumber).toBe('R2');
+    expect(kept.remark).toBe('new');
+    expect(kept.totalReceived).toBe(50);
+    expect(kept.passwordEnc).toBe('enc:v1:x');
+    expect(kept.filings['Apr 2026'].fees).toBe(20);
+    expect(kept.filings['May 2026'].fees).toBe(3);
+    expect(ledger.gstMonths).toContain('May 2026');
   });
 });

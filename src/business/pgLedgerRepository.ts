@@ -51,7 +51,7 @@ export async function computeLedgerRevision(
   organizationId: string
 ): Promise<string> {
   const res = await client.query(
-    `SELECT md5(COALESCE(string_agg(part, '|' ORDER BY part), '')) AS revision
+    `SELECT COALESCE(string_agg(part, '|' ORDER BY part), '') AS fingerprint
      FROM (
        SELECT 'ay:' || label AS part
          FROM assessment_years WHERE organization_id = $1::uuid
@@ -77,7 +77,8 @@ export async function computeLedgerRevision(
      ) parts`,
     [organizationId]
   );
-  return String(res.rows[0]?.revision || crypto.createHash('md5').update('').digest('hex'));
+  const fingerprint = String(res.rows[0]?.fingerprint ?? '');
+  return crypto.createHash('sha256').update(fingerprint).digest('hex');
 }
 
 async function lockOrganization(
