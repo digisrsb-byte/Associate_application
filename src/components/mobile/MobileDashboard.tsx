@@ -103,15 +103,15 @@ export function MobileDashboard({
 
       <section className="grid grid-cols-2 gap-2.5">
         <KpiTile
-          label="IT clients"
+          label="IT clients count"
           value={String(itClients.length)}
-          hint={`${assessmentYears.length} AY`}
+          hint={`${assessmentYears.length} AY · due ₹${formatPlainNumber(itSummary.totalOutstanding)}`}
           onClick={onOpenItAllData}
         />
         <KpiTile
-          label="GST companies"
+          label="GST companies count"
           value={String(gstClients.length)}
-          hint={`${gstMonths.length} months`}
+          hint={`${gstMonths.length} months · due ₹${formatPlainNumber(gstCompanyWide.totalOutstanding)}`}
           onClick={onOpenGstAllData}
         />
       </section>
@@ -120,7 +120,7 @@ export function MobileDashboard({
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Outstanding
+              Outstanding due
             </p>
             <p
               className={`mt-1 font-display text-2xl font-bold tabular-nums tracking-tight ${
@@ -134,7 +134,7 @@ export function MobileDashboard({
           </div>
           <div className="text-right">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Collected
+              Collections received
             </p>
             <p className="mt-1 font-mono text-sm font-bold tabular-nums text-[var(--success)]">
               {inr(totalReceived)}

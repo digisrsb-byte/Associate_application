@@ -9,10 +9,12 @@ import type {
   LedgerState,
   MainSection,
 } from './types/ledger.ts';
+import type { ItQuickEditFocus } from './types/itUi.ts';
 import {
   collectGstFinancialYears,
   computeClientTotals,
   computeGstClientTotals,
+  computeGstFilingOutstanding,
   downloadTextFile,
   formatPlainNumber,
   getCurrentGstFinancialYearLabel,
@@ -26,6 +28,10 @@ import {
   sortGstFinancialYears,
   sortGstMonths,
 } from './utils/ledgerUtils.ts';
+import {
+  matchesGstCompanySearch,
+  matchesItClientSearch,
+} from './utils/recordSearch.ts';
 import {
   GST_FY_RECD_SCOPE_NOTE,
   gstFyUnallocatedSeparateNote,
@@ -106,6 +112,7 @@ export default function App() {
     client: ClientRecord;
     year: string;
     existing?: FilingRecord;
+    focus?: ItQuickEditFocus;
   } | null>(null);
 
   // GST Modals / Drawer
@@ -217,28 +224,14 @@ export default function App() {
   };
 
   const filteredClients = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return ledger.clients;
-    return ledger.clients.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.pan.toLowerCase().includes(q) ||
-        (c.phone || '').toLowerCase().includes(q) ||
-        (c.referenceNumber || '').toLowerCase().includes(q) ||
-        (c.remark || '').toLowerCase().includes(q)
-    );
+    if (!searchQuery.trim()) return ledger.clients;
+    return ledger.clients.filter((c) => matchesItClientSearch(c, searchQuery));
   }, [ledger.clients, searchQuery]);
 
   const filteredGstClients = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return ledger.gstClients;
-    return ledger.gstClients.filter(
-      (c) =>
-        c.companyName.toLowerCase().includes(q) ||
-        c.userId.toLowerCase().includes(q) ||
-        (c.phone || '').toLowerCase().includes(q) ||
-        (c.referenceNumber || '').toLowerCase().includes(q) ||
-        (c.remark || '').toLowerCase().includes(q)
+    if (!searchQuery.trim()) return ledger.gstClients;
+    return ledger.gstClients.filter((c) =>
+      matchesGstCompanySearch(c, searchQuery)
     );
   }, [ledger.gstClients, searchQuery]);
 
@@ -247,6 +240,7 @@ export default function App() {
     let outstandingTotal = 0;
     let totalBilled = 0;
     let totalEntries = 0;
+    let pendingPaymentsCount = 0;
 
     for (const c of ledger.clients) {
       const t = computeClientTotals(c);
@@ -255,9 +249,20 @@ export default function App() {
       for (const f of Object.values(c.filings || {})) {
         totalBilled += Number(f.fees) || 0;
         totalEntries += 1;
+        const bal =
+          typeof f.balance === 'number' && Number.isFinite(f.balance)
+            ? Math.max(0, f.balance)
+            : Math.max(0, (Number(f.fees) || 0) - (Number(f.received) || 0));
+        if (bal > 0) pendingPaymentsCount += 1;
       }
     }
-    return { totalReceived, outstandingTotal, totalBilled, totalEntries };
+    return {
+      totalReceived,
+      outstandingTotal,
+      totalBilled,
+      totalEntries,
+      pendingPaymentsCount,
+    };
   }, [ledger.clients]);
 
   const suggestedNextYear = useMemo(
@@ -284,12 +289,21 @@ export default function App() {
 
   const gstTotalsSummary = useMemo(() => {
     const fy = computeGstFyDashboardTotals(ledger.gstClients, visibleGstMonths);
+    let pendingPaymentsCount = 0;
+    for (const c of ledger.gstClients) {
+      for (const m of visibleGstMonths) {
+        const f = c.filings?.[m];
+        if (!f) continue;
+        if (computeGstFilingOutstanding(f) > 0) pendingPaymentsCount += 1;
+      }
+    }
     return {
       totalReceived: fy.totalReceived,
       outstandingTotal: fy.totalOutstanding,
       totalBilled: fy.totalBilled,
       totalEntries: fy.totalEntries,
       unallocatedReceived: fy.unallocatedReceived,
+      pendingPaymentsCount,
     };
   }, [ledger.gstClients, visibleGstMonths]);
 
@@ -902,6 +916,11 @@ export default function App() {
             outstandingTotal={totals.outstandingTotal}
             totalBilled={totals.totalBilled}
             totalEntries={totals.totalEntries}
+            pendingPaymentsCount={
+              'pendingPaymentsCount' in totals
+                ? totals.pendingPaymentsCount
+                : undefined
+            }
             entityPluralLabel={mainSection === 'it' ? 'Clients' : 'Companies'}
             entitySingularLabel={mainSection === 'it' ? 'client' : 'company'}
             periodPluralLabel={
@@ -909,6 +928,11 @@ export default function App() {
             }
             periodSingularLabel={
               mainSection === 'it' ? 'Assessment Year' : 'Month'
+            }
+            receivedTitle={
+              mainSection === 'gst'
+                ? 'Monthly collections'
+                : 'Collections received'
             }
             receivedScopeLabel={
               mainSection === 'gst' ? activeGstFy : undefined
@@ -948,8 +972,8 @@ export default function App() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={
                   mainSection === 'it'
-                    ? 'Search clients by name, PAN, phone, ref…'
-                    : 'Search companies by name, user ID, phone, ref…'
+                    ? 'Search by name, PAN, phone, ref, or assessment year…'
+                    : 'Search by company, User ID / GSTIN, phone, ref, or filing month…'
                 }
                 className="w-full pl-9 pr-3 py-2.5 text-sm bg-[var(--card)] border border-[var(--line)] rounded-xl shadow-sm placeholder:text-[var(--sidebar-text)] focus:outline-none focus:ring-2 focus:ring-[var(--blue-500)]/30 focus:border-[var(--blue-500)]"
               />
@@ -1034,8 +1058,8 @@ export default function App() {
                 onDeleteClient={handleDeleteClient}
                 onSaveFiling={handleSaveFiling}
                 onDeleteFiling={handleDeleteFiling}
-                onOpenQuickEdit={(client, year, existing) =>
-                  setQuickEditTarget({ client, year, existing })
+                onOpenQuickEdit={(client, year, existing, focus) =>
+                  setQuickEditTarget({ client, year, existing, focus })
                 }
                 onAddClientClick={() => {
                   setClientModalOpen(true);

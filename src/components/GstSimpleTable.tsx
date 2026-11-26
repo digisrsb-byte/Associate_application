@@ -30,14 +30,17 @@ import {
   BottomPeriodNavigator,
   TopPeriodNavigator,
 } from './shared/PeriodNavigator.tsx';
-import {
-  SimpleTableToolbar,
-  TableFooterBar,
-} from './shared/SheetTableToolbar.tsx';
+import { TableFooterBar } from './shared/SheetTableToolbar.tsx';
 import { TABLE_FOCUS_RING } from './shared/tableStyles.ts';
 import { useIsCompactLayout } from '../hooks/useMediaQuery.ts';
 import { GstCompanyMobileList } from './mobile/GstCompanyMobileList.tsx';
 import { ConfirmDangerButton } from './mobile/ConfirmDangerButton.tsx';
+import { PaymentStatusBadge } from './PaymentStatusBadge.tsx';
+import { PaymentStatusFilterChips } from './shared/PaymentStatusFilterChips.tsx';
+import {
+  classifyGstFilingsStatus,
+  type PaymentStatusFilter,
+} from '../utils/paymentStatusUi.ts';
 
 interface GstSimpleTableProps {
   clients: GstClientRecord[];
@@ -109,6 +112,8 @@ export function GstSimpleTable({
   const [showAllMonths, setShowAllMonths] = useState(true);
   const [monthMenuOpen, setMonthMenuOpen] = useState(false);
   const monthMenuRef = useRef<HTMLDivElement | null>(null);
+  const [paymentStatusFilter, setPaymentStatusFilter] =
+    useState<PaymentStatusFilter>('all');
 
   const [inlineDrafts, setInlineDrafts] = useState<
     Record<
@@ -262,6 +267,38 @@ export function GstSimpleTable({
     }
     return billed;
   }, [clients, sortedMonths]);
+
+  const visibleMonthsForStatus = useMemo(() => {
+    if (showAllMonths) return sortedMonths;
+    return activeMonth ? [activeMonth] : [];
+  }, [showAllMonths, sortedMonths, activeMonth]);
+
+  const companyPaymentStatus = (company: GstClientRecord) => {
+    const filings = visibleMonthsForStatus
+      .map((m) => company.filings?.[m])
+      .filter(Boolean)
+      .map((f) => ({
+        billed: Math.max(0, Number(f!.total) || 0),
+        received: computeGstFilingReceived(f!),
+        outstanding: computeGstFilingOutstanding(f!),
+      }));
+    return classifyGstFilingsStatus(filings);
+  };
+
+  const visibleCompanies = useMemo(() => {
+    if (paymentStatusFilter === 'all') return clients;
+    return clients.filter((c) => {
+      const filings = visibleMonthsForStatus
+        .map((m) => c.filings?.[m])
+        .filter(Boolean)
+        .map((f) => ({
+          billed: Math.max(0, Number(f!.total) || 0),
+          received: computeGstFilingReceived(f!),
+          outstanding: computeGstFilingOutstanding(f!),
+        }));
+      return classifyGstFilingsStatus(filings) === paymentStatusFilter;
+    });
+  }, [clients, paymentStatusFilter, visibleMonthsForStatus]);
 
   useEffect(() => {
     if (!monthMenuOpen) return;
@@ -497,30 +534,49 @@ export function GstSimpleTable({
 
   return (
     <div className="bg-[var(--card)] rounded-2xl border border-white shadow-card overflow-hidden">
-      <SimpleTableToolbar>
-        <TopPeriodNavigator
-          layout="split"
-          canPrev={canGoPrev}
-          canNext={canGoNext}
-          showAll={showAllMonths}
-          isViewingCurrent={isViewingCurrent}
-          onPrev={goPrev}
-          onNext={goNext}
-          onCurrent={backToCurrent}
-          onShowAll={() => {
-            setShowAllMonths(true);
-            setMonthMenuOpen(false);
-          }}
-          prevAriaLabel="Previous month"
-          nextAriaLabel="Next month"
-          allLabel="All months"
-          periodSlot={monthDropdown}
+      <div className="px-4 py-3 border-b border-[var(--line)] bg-[var(--frost-100)] space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TopPeriodNavigator
+            layout="split"
+            canPrev={canGoPrev}
+            canNext={canGoNext}
+            showAll={showAllMonths}
+            isViewingCurrent={isViewingCurrent}
+            onPrev={goPrev}
+            onNext={goNext}
+            onCurrent={backToCurrent}
+            onShowAll={() => {
+              setShowAllMonths(true);
+              setMonthMenuOpen(false);
+            }}
+            prevAriaLabel="Previous month"
+            nextAriaLabel="Next month"
+            allLabel="All months"
+            periodSlot={monthDropdown}
+          />
+        </div>
+        <PaymentStatusFilterChips
+          value={paymentStatusFilter}
+          onChange={setPaymentStatusFilter}
         />
-      </SimpleTableToolbar>
+        <p className="text-[11px] text-[var(--muted)]">
+          Period:{' '}
+          <span className="font-semibold text-[var(--ink)]">
+            {showAllMonths ? 'All months' : activeMonth || '—'}
+          </span>
+          {' · '}
+          Showing {visibleCompanies.length} of {clients.length} companies.
+          Expand a row to add a filing.
+        </p>
+      </div>
 
-      {isCompact ? (
+      {visibleCompanies.length === 0 ? (
+        <div className="px-6 py-10 text-center text-sm text-[var(--muted)]">
+          No companies match the selected period and payment status.
+        </div>
+      ) : isCompact ? (
         <GstCompanyMobileList
-          companies={clients}
+          companies={visibleCompanies}
           availableMonths={availableMonths}
           showAllMonths={showAllMonths}
           activeMonth={activeMonth}
@@ -544,19 +600,24 @@ export function GstSimpleTable({
               <th className="px-2.5 py-3 font-medium whitespace-nowrap">Remark</th>
               <th className="px-2.5 py-3 font-medium whitespace-nowrap">Monthly Filing</th>
               <th className="px-2.5 py-3 font-medium text-right whitespace-nowrap">
-                {showAllMonths ? 'Total Recd' : 'Company Received'}
+                {showAllMonths
+                  ? 'Total Recd'
+                  : 'Company Received (all months)'}
               </th>
               <th className="px-2.5 py-3 font-medium text-right whitespace-nowrap">
-                {showAllMonths ? 'Outstanding' : 'Company Outstanding'}
+                {showAllMonths
+                  ? 'Outstanding'
+                  : 'Company Outstanding (all months)'}
               </th>
               <th className="px-3 py-3 font-medium text-right whitespace-nowrap">Action</th>
             </tr>
           </thead>
 
           <tbody className="divide-y divide-[var(--line)]">
-            {clients.map((company) => {
+            {visibleCompanies.map((company) => {
               const isExpanded = Boolean(expandedIds[company.id]);
               const totals = computeGstClientTotals(company);
+              const payStatus = companyPaymentStatus(company);
               const allCompanyMonths = sortGstMonths(
                 Object.keys(company.filings || {}).filter((m) =>
                   availableMonths.length === 0
@@ -700,15 +761,18 @@ export function GstSimpleTable({
                         totals.outstandingTotal > 0 ? 'text-[var(--blue-500)]' : 'text-[var(--ink)]'
                       }`}
                     >
-                      <div>₹{formatPlainNumber(totals.outstandingTotal)}</div>
-                      {totals.unallocatedReceived > 0 && (
-                        <div
-                          className="text-[10px] font-medium text-[var(--muted)] whitespace-normal"
-                          title={GST_OUTSTANDING_UNALLOCATED_EXPLAIN}
-                        >
-                          Incl. unallocated in company total
-                        </div>
-                      )}
+                      <div className="inline-flex flex-col items-end gap-1">
+                        <span>₹{formatPlainNumber(totals.outstandingTotal)}</span>
+                        <PaymentStatusBadge status={payStatus} />
+                        {totals.unallocatedReceived > 0 && (
+                          <div
+                            className="text-[10px] font-medium text-[var(--muted)] whitespace-normal no-underline"
+                            title={GST_OUTSTANDING_UNALLOCATED_EXPLAIN}
+                          >
+                            Incl. unallocated in company total
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     <td className="relative z-10 has-[[aria-expanded=true]]:z-50 px-3 py-2.5 text-right whitespace-nowrap overflow-visible">
@@ -725,11 +789,12 @@ export function GstSimpleTable({
                       <td colSpan={11} className="px-3 py-2.5 border-t border-[var(--line)]">
                         <div className="bg-[var(--card)] border border-[var(--line)] rounded-xl overflow-hidden shadow-xs">
                           <p className="px-3 py-2 text-[11px] text-[var(--muted)] border-b border-[var(--line)] bg-[var(--frost-100)]">
-                            Type Fees, Interest and Tax here — Total and Outstanding update
-                            live. Click <span className="font-semibold text-[var(--ink)]">Save</span>{' '}
-                            for charges. Use{' '}
-                            <span className="font-semibold text-[var(--ink)]">Pay</span> only
-                            to record payments.
+                            Type Fees, Interest and Tax — Total and Outstanding update live.
+                            Click{' '}
+                            <span className="font-semibold text-[var(--ink)]">Save charges</span>{' '}
+                            to keep billing amounts. Use{' '}
+                            <span className="font-semibold text-[var(--ink)]">Pay</span> only to
+                            record or edit payment history (Received is the sum of payments).
                           </p>
                           <div className="overflow-x-auto">
                             <table className="w-full border-collapse text-left text-[11px] sm:text-xs">
@@ -740,7 +805,7 @@ export function GstSimpleTable({
                                   <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Interest (₹)</th>
                                   <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Tax (₹)</th>
                                   <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Total (₹)</th>
-                                  <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Recd (₹)</th>
+                                  <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Received (₹)</th>
                                   <th className="px-2.5 py-2 font-semibold text-right whitespace-nowrap">Outstanding (₹)</th>
                                   <th className="px-3 py-2 font-semibold text-right whitespace-nowrap">Action</th>
                                 </tr>
@@ -852,7 +917,7 @@ export function GstSimpleTable({
                                               }
                                               className="inline-flex items-center px-2.5 py-1 text-[11px] font-bold text-white bg-[var(--navy-900)] hover:bg-[var(--navy-700)] rounded-lg cursor-pointer disabled:opacity-60"
                                             >
-                                              {rowSaving ? 'Saving…' : 'Save'}
+                                              {rowSaving ? 'Saving…' : 'Save charges'}
                                             </button>
                                           ) : null}
                                           <button
@@ -865,7 +930,7 @@ export function GstSimpleTable({
                                                 'payment'
                                               )
                                             }
-                                            className="px-1.5 py-0.5 text-[11px] font-semibold text-[var(--blue-500)] hover:underline cursor-pointer"
+                                            className="px-2 py-1 text-[11px] font-semibold text-[var(--blue-500)] hover:underline cursor-pointer"
                                             title="Record or edit payments for this month"
                                           >
                                             Pay
@@ -956,7 +1021,9 @@ export function GstSimpleTable({
                                     >
                                       <Plus className="w-3 h-3" />
                                       <span>
-                                        {savingCompanyId === company.id ? 'Saving...' : 'Save Month'}
+                                        {savingCompanyId === company.id
+                                          ? 'Saving...'
+                                          : 'Add filing'}
                                       </span>
                                     </button>
                                   </td>

@@ -64,8 +64,8 @@ test.describe('Stage 3 — IT financial calculations', () => {
     if (await recdInput.isVisible().catch(() => false)) {
       await yearRow.getByLabel(new RegExp(`${year} fees`, 'i')).fill(String(fees));
       await recdInput.fill(String(fees));
-      await yearRow.getByRole('button', { name: /^Save$/i }).click();
-      await expect(yearRow.getByRole('button', { name: /^Save$/i })).toHaveCount(0, {
+      await yearRow.getByRole('button', { name: /^Save( amounts)?$/i }).click();
+      await expect(yearRow.getByRole('button', { name: /^Save( amounts)?$/i })).toHaveCount(0, {
         timeout: 15_000,
       });
     } else {
@@ -250,7 +250,7 @@ test.describe('Stage 3 — IT financial calculations', () => {
     await expect(
       dialog.getByText(`₹${expectDisplayAmount(expectItBalance(fees, received))}`)
     ).toBeVisible();
-    await dialog.getByRole('button', { name: /^Save$/i }).click();
+    await dialog.getByRole('button', { name: /^Save( filing)?$/i }).click();
     await expect(dialog).toBeHidden({ timeout: 15_000 });
 
     const saved = await findItClientInLedger(page.request, pan);

@@ -1105,11 +1105,11 @@ export function OverallDashboard({
                                   const tag =
                                     billed > 0 && recd >= billed
                                       ? ['paid', 'Paid']
-                                      : recd > 0
-                                        ? ['part', 'Partial']
-                                        : billed
-                                          ? ['due', 'Due']
-                                          : ['due', 'No bill'];
+                                      : billed > 0 && recd > 0
+                                        ? ['part', 'Partially Paid']
+                                        : billed > 0
+                                          ? ['due', 'Pending']
+                                          : ['due', 'No Billing'];
                                   return (
                                     <div
                                       key={`${client.id}-${row.year}`}

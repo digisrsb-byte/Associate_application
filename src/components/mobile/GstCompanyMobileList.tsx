@@ -24,6 +24,8 @@ import {
 import { CompanyRowMenu } from '../CompanyRowMenu.tsx';
 import { PortalPasswordCell } from '../PortalPasswordCell.tsx';
 import { ConfirmDangerButton } from './ConfirmDangerButton.tsx';
+import { PaymentStatusBadge } from '../PaymentStatusBadge.tsx';
+import { classifyGstFilingsStatus } from '../../utils/paymentStatusUi.ts';
 
 export type GstQuickEditFocus = 'charges' | 'payment';
 
@@ -113,12 +115,15 @@ export function GstCompanyMobileList({
             : showAllMonths
               ? `${months.length} ${months.length === 1 ? 'month' : 'months'}`
               : activeMonth || `${months.length} months`;
-        const statusHint =
-          totals.outstandingTotal > 0
-            ? 'Outstanding'
-            : totals.totalBilled > 0
-              ? 'Settled'
-              : 'No billing';
+        const periodFilings = months
+          .map((m) => company.filings?.[m])
+          .filter(Boolean)
+          .map((f) => ({
+            billed: Math.max(0, Number(f!.total) || 0),
+            received: computeGstFilingReceived(f!),
+            outstanding: computeGstFilingOutstanding(f!),
+          }));
+        const payStatus = classifyGstFilingsStatus(periodFilings);
 
         return (
           <li
@@ -183,16 +188,14 @@ export function GstCompanyMobileList({
                     <span className="rounded-lg border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)]">
                       {periodHint}
                     </span>
-                    <span className="rounded-lg border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)]">
-                      {statusHint}
-                    </span>
+                    <PaymentStatusBadge status={payStatus} />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-xl border border-[var(--line)] bg-[var(--frost-100)] px-2.5 py-2">
                       <p className="text-[10px] font-semibold text-[var(--muted)] leading-snug">
                         {companyTotalsFiltered
-                          ? 'Company Received'
+                          ? 'Company Received (all months)'
                           : 'Received'}
                       </p>
                       <p className="mt-0.5 font-mono text-[12px] font-bold tabular-nums text-[var(--success)]">
@@ -202,7 +205,7 @@ export function GstCompanyMobileList({
                     <div className="rounded-xl border border-[var(--line)] bg-[var(--frost-100)] px-2.5 py-2">
                       <p className="text-[10px] font-semibold text-[var(--muted)] leading-snug">
                         {companyTotalsFiltered
-                          ? 'Company Outstanding'
+                          ? 'Company Outstanding (all months)'
                           : 'Outstanding'}
                       </p>
                       <p
@@ -246,15 +249,33 @@ export function GstCompanyMobileList({
                   className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--frost-100)] text-xs font-bold text-[var(--ink)] cursor-pointer"
                 >
                   <Pencil className="w-3.5 h-3.5" />
-                  Edit
+                  Edit company
                 </button>
-                <button
-                  type="button"
-                  onClick={() => toggleExpand(company.id)}
-                  className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl border border-[var(--line)] text-xs font-bold text-[var(--navy-900)] cursor-pointer"
-                >
-                  {isExpanded ? 'Hide details' : 'View filings'}
-                </button>
+                {months.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenQuickEdit(
+                        company,
+                        suggestMonthForAdd(company),
+                        undefined,
+                        'charges'
+                      )
+                    }
+                    className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[var(--navy-900)] text-xs font-bold text-white cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add filing
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(company.id)}
+                    className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl border border-[var(--line)] text-xs font-bold text-[var(--navy-900)] cursor-pointer"
+                  >
+                    {isExpanded ? 'Hide details' : 'View filings'}
+                  </button>
+                )}
               </div>
             </div>
 

@@ -375,6 +375,11 @@ export function GstFilingQuickModal({
               <h3 id={`${uid}-charges-heading`} className={sectionTitle}>
                 Filing Charges
               </h3>
+              <p className="text-[11px] text-[var(--muted)] leading-relaxed">
+                Edit Fees, Interest and Tax here. Total updates live. Use{' '}
+                <span className="font-semibold text-[var(--ink)]">Save Filing</span>{' '}
+                for charges only — it never records a payment.
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label
@@ -486,6 +491,9 @@ export function GstFilingQuickModal({
                   >
                     ₹{formatPlainNumber(outstanding)}
                   </div>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    Total − Received for this month (minimum zero).
+                  </p>
                 </div>
               </div>
 
