@@ -27,6 +27,8 @@ interface GstFilingQuickModalProps {
     company: GstClientRecord;
     month: string;
     existing?: GstMonthlyFiling;
+    /** Mobile Pay opens payment section; Edit Charges focuses fees. */
+    focus?: 'charges' | 'payment';
   } | null;
   onClose: () => void;
   onSave: (companyId: string, filing: GstMonthlyFiling) => Promise<void>;
@@ -80,6 +82,8 @@ export function GstFilingQuickModal({
 }: GstFilingQuickModalProps) {
   const uid = useId();
   const feesInputRef = useRef<HTMLInputElement>(null);
+  const payAmountInputRef = useRef<HTMLInputElement>(null);
+  const paymentSectionRef = useRef<HTMLElement>(null);
   const [fees, setFees] = useState('');
   const [interest, setInterest] = useState('');
   const [tax, setTax] = useState('');
@@ -139,11 +143,20 @@ export function GstFilingQuickModal({
 
   useEffect(() => {
     if (!target) return;
+    const focusPayment = target.focus === 'payment';
     const frame = window.requestAnimationFrame(() => {
-      feesInputRef.current?.focus({ preventScroll: true });
+      if (focusPayment) {
+        paymentSectionRef.current?.scrollIntoView({
+          block: 'start',
+          behavior: 'smooth',
+        });
+        payAmountInputRef.current?.focus({ preventScroll: true });
+      } else {
+        feesInputRef.current?.focus({ preventScroll: true });
+      }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [target?.company.id, target?.month]);
+  }, [target?.company.id, target?.month, target?.focus]);
 
   const liveFiling = target?.existing;
   const payments: GstPaymentEntry[] = useMemo(
@@ -433,7 +446,11 @@ export function GstFilingQuickModal({
             </section>
 
             {/* Section 2 — Payment Details (always visible) */}
-            <section className="space-y-3" aria-labelledby={`${uid}-payment-details-heading`}>
+            <section
+              ref={paymentSectionRef}
+              className="space-y-3"
+              aria-labelledby={`${uid}-payment-details-heading`}
+            >
               <h3 id={`${uid}-payment-details-heading`} className={sectionTitle}>
                 Payment Details
               </h3>
@@ -510,6 +527,7 @@ export function GstFilingQuickModal({
                         Payment Amount (₹)
                       </label>
                       <input
+                        ref={payAmountInputRef}
                         id={`${uid}-pay-amount`}
                         type="number"
                         min={0.01}

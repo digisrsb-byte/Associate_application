@@ -47,7 +47,12 @@ interface GstSimpleTableProps {
   onDeleteCompany: (companyId: string) => Promise<void>;
   onSaveFiling: (companyId: string, filing: GstMonthlyFiling) => Promise<void>;
   onDeleteFiling: (companyId: string, month: string) => Promise<void>;
-  onOpenQuickEdit: (company: GstClientRecord, month: string, existing?: GstMonthlyFiling) => void;
+  onOpenQuickEdit: (
+    company: GstClientRecord,
+    month: string,
+    existing?: GstMonthlyFiling,
+    focus?: 'charges' | 'payment'
+  ) => void;
   onAddCompanyClick: () => void;
 }
 
@@ -853,7 +858,12 @@ export function GstSimpleTable({
                                           <button
                                             type="button"
                                             onClick={() =>
-                                              onOpenQuickEdit(company, m, f)
+                                              onOpenQuickEdit(
+                                                company,
+                                                m,
+                                                f,
+                                                'payment'
+                                              )
                                             }
                                             className="px-1.5 py-0.5 text-[11px] font-semibold text-[var(--blue-500)] hover:underline cursor-pointer"
                                             title="Record or edit payments for this month"

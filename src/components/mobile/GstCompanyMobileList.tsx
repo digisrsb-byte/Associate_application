@@ -10,6 +10,8 @@ import {
 import type { GstClientRecord, GstMonthlyFiling } from '../../types/ledger.ts';
 import {
   computeGstClientTotals,
+  computeGstFilingOutstanding,
+  computeGstFilingReceived,
   formatPlainNumber,
   getNextGstMonth,
   sortGstMonths,
@@ -23,6 +25,8 @@ import { CompanyRowMenu } from '../CompanyRowMenu.tsx';
 import { PortalPasswordCell } from '../PortalPasswordCell.tsx';
 import { ConfirmDangerButton } from './ConfirmDangerButton.tsx';
 
+export type GstQuickEditFocus = 'charges' | 'payment';
+
 export interface GstCompanyMobileListProps {
   companies: GstClientRecord[];
   availableMonths: string[];
@@ -35,7 +39,8 @@ export interface GstCompanyMobileListProps {
   onOpenQuickEdit: (
     company: GstClientRecord,
     month: string,
-    existing?: GstMonthlyFiling
+    existing?: GstMonthlyFiling,
+    focus?: GstQuickEditFocus
   ) => void;
 }
 
@@ -76,6 +81,8 @@ export function GstCompanyMobileList({
       companyMonths.length > 0 ? companyMonths : availableMonths.slice(0, -1)
     );
   };
+
+  const companyTotalsFiltered = !showAllMonths && Boolean(activeMonth);
 
   if (companies.length === 0) {
     return (
@@ -179,19 +186,35 @@ export function GstCompanyMobileList({
                     <span className="rounded-lg border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)]">
                       {statusHint}
                     </span>
-                    <span
-                      className={`rounded-lg px-2.5 py-1 font-mono text-[12px] font-bold tabular-nums ${
-                        totals.outstandingTotal > 0
-                          ? 'bg-[var(--navy-900)] text-white'
-                          : 'bg-[var(--success-15)] text-[var(--success)]'
-                      }`}
-                    >
-                      {totals.outstandingTotal > 0 ? 'Due ' : ''}₹
-                      {formatPlainNumber(totals.outstandingTotal)}
-                    </span>
-                    <span className="rounded-lg border border-[var(--line)] px-2 py-1 font-mono text-[11px] font-semibold text-[var(--success)]">
-                      Recd ₹{formatPlainNumber(totals.totalReceived)}
-                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-xl border border-[var(--line)] bg-[var(--frost-100)] px-2.5 py-2">
+                      <p className="text-[10px] font-semibold text-[var(--muted)] leading-snug">
+                        {companyTotalsFiltered
+                          ? 'Company Received'
+                          : 'Received'}
+                      </p>
+                      <p className="mt-0.5 font-mono text-[12px] font-bold tabular-nums text-[var(--success)]">
+                        ₹{formatPlainNumber(totals.totalReceived)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-[var(--line)] bg-[var(--frost-100)] px-2.5 py-2">
+                      <p className="text-[10px] font-semibold text-[var(--muted)] leading-snug">
+                        {companyTotalsFiltered
+                          ? 'Company Outstanding'
+                          : 'Outstanding'}
+                      </p>
+                      <p
+                        className={`mt-0.5 font-mono text-[12px] font-bold tabular-nums ${
+                          totals.outstandingTotal > 0
+                            ? 'text-[var(--blue-500)]'
+                            : 'text-[var(--ink)]'
+                        }`}
+                      >
+                        ₹{formatPlainNumber(totals.outstandingTotal)}
+                      </p>
+                    </div>
                   </div>
                   {totals.unallocatedReceived > 0 && (
                     <p
@@ -237,8 +260,20 @@ export function GstCompanyMobileList({
 
             {isExpanded && (
               <div className="border-t border-[var(--line)] bg-[var(--frost-100)]/50 px-3.5 py-3 space-y-2.5">
+                <p className="rounded-xl border border-[var(--line)] bg-[var(--card)] px-3 py-2.5 text-[11px] text-[var(--muted)] leading-relaxed">
+                  <span className="font-semibold text-[var(--ink)]">
+                    Save Charges
+                  </span>{' '}
+                  = updates filing charges.{' '}
+                  <span className="font-semibold text-[var(--ink)]">Pay</span> =
+                  records money received. Received is calculated from recorded
+                  payments. Outstanding = Total − Received (minimum zero).
+                </p>
+
                 <div className="flex items-center justify-between gap-2 text-[11px]">
-                  <span className="text-[var(--muted)] font-medium">Portal password</span>
+                  <span className="text-[var(--muted)] font-medium">
+                    Portal password
+                  </span>
                   <PortalPasswordCell
                     kind="gst"
                     id={company.id}
@@ -268,6 +303,11 @@ export function GstCompanyMobileList({
                     {months.map((m) => {
                       const f = company.filings[m];
                       if (!f) return null;
+                      const monthRecd = computeGstFilingReceived(f);
+                      const monthOut = computeGstFilingOutstanding(f);
+                      const payCount = Array.isArray(f.payments)
+                        ? f.payments.length
+                        : 0;
                       return (
                         <li
                           key={m}
@@ -278,7 +318,7 @@ export function GstCompanyMobileList({
                               {m}
                             </p>
                             <span className="rounded-lg bg-[var(--frost-100)] px-2 py-1 font-mono text-[11px] font-bold tabular-nums text-[var(--ink)]">
-                              ₹{formatPlainNumber(f.total)}
+                              Total ₹{formatPlainNumber(f.total)}
                             </span>
                           </div>
                           <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px] font-mono tabular-nums">
@@ -289,7 +329,7 @@ export function GstCompanyMobileList({
                               </p>
                             </div>
                             <div className="rounded-lg bg-[var(--frost-100)] px-1.5 py-1.5 text-center">
-                              <p className="text-[var(--muted)]">Int</p>
+                              <p className="text-[var(--muted)]">Interest</p>
                               <p className="font-semibold text-[var(--ink)]">
                                 {formatPlainNumber(f.interest)}
                               </p>
@@ -301,20 +341,67 @@ export function GstCompanyMobileList({
                               </p>
                             </div>
                           </div>
+                          <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-[10px] font-mono tabular-nums">
+                            <div className="rounded-lg bg-[var(--frost-100)] px-1.5 py-1.5 text-center">
+                              <p className="text-[var(--muted)]">Received</p>
+                              <p className="font-semibold text-[var(--success)]">
+                                ₹{formatPlainNumber(monthRecd)}
+                              </p>
+                            </div>
+                            <div className="rounded-lg bg-[var(--frost-100)] px-1.5 py-1.5 text-center">
+                              <p className="text-[var(--muted)]">Outstanding</p>
+                              <p
+                                className={`font-semibold ${
+                                  monthOut > 0
+                                    ? 'text-[var(--blue-500)]'
+                                    : 'text-[var(--ink)]'
+                                }`}
+                              >
+                                ₹{formatPlainNumber(monthOut)}
+                              </p>
+                            </div>
+                          </div>
+                          {payCount > 0 ? (
+                            <p className="mt-2 text-[11px] text-[var(--muted)]">
+                              Payment history: {payCount}{' '}
+                              {payCount === 1 ? 'entry' : 'entries'} — open{' '}
+                              <span className="font-semibold text-[var(--ink)]">
+                                Pay
+                              </span>{' '}
+                              to view, edit or delete.
+                            </p>
+                          ) : (
+                            <p className="mt-2 text-[11px] text-[var(--muted)]">
+                              No payments yet — use{' '}
+                              <span className="font-semibold text-[var(--ink)]">
+                                Pay
+                              </span>{' '}
+                              to record and see payment history.
+                            </p>
+                          )}
                           <div className="mt-2.5 flex flex-col gap-2">
                             <button
                               type="button"
-                              onClick={() => onOpenQuickEdit(company, m, f)}
+                              onClick={() =>
+                                onOpenQuickEdit(company, m, f, 'charges')
+                              }
                               className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-[var(--line)] bg-[var(--card)] text-xs font-bold text-[var(--ink)] cursor-pointer"
                             >
-                              Edit filing
+                              Edit Charges
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenQuickEdit(company, m, f, 'payment')
+                              }
+                              className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-[var(--navy-900)] text-xs font-bold text-white cursor-pointer"
+                            >
+                              Pay
                             </button>
                             <ConfirmDangerButton
                               label="Remove filing"
                               confirmLabel="Delete filing & payments"
-                              warning={gstFilingDeleteWarning(
-                                Array.isArray(f.payments) ? f.payments.length : 0
-                              )}
+                              warning={gstFilingDeleteWarning(payCount)}
                               onConfirm={() => onDeleteFiling(company.id, m)}
                             />
                           </div>
@@ -327,7 +414,12 @@ export function GstCompanyMobileList({
                 <button
                   type="button"
                   onClick={() =>
-                    onOpenQuickEdit(company, suggestMonthForAdd(company))
+                    onOpenQuickEdit(
+                      company,
+                      suggestMonthForAdd(company),
+                      undefined,
+                      'charges'
+                    )
                   }
                   className="inline-flex w-full min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--navy-900)] px-3 text-xs font-bold text-white cursor-pointer"
                 >

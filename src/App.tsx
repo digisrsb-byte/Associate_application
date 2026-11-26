@@ -117,6 +117,7 @@ export default function App() {
     company: GstClientRecord;
     month: string;
     existing?: GstMonthlyFiling;
+    focus?: 'charges' | 'payment';
   } | null>(null);
 
   const handleUnauthorized = () => {
@@ -480,6 +481,7 @@ export default function App() {
       company,
       month: gstQuickEditTarget.month,
       existing,
+      focus: gstQuickEditTarget.focus,
     };
   }, [gstQuickEditTarget, ledger.gstClients]);
 
@@ -1080,8 +1082,8 @@ export default function App() {
               onDeleteCompany={handleDeleteGstCompany}
               onSaveFiling={handleSaveGstFiling}
               onDeleteFiling={handleDeleteGstFiling}
-              onOpenQuickEdit={(company, month, existing) =>
-                setGstQuickEditTarget({ company, month, existing })
+              onOpenQuickEdit={(company, month, existing, focus) =>
+                setGstQuickEditTarget({ company, month, existing, focus })
               }
               onAddCompanyClick={() => {
                 setGstCompanyModalOpen(true);
