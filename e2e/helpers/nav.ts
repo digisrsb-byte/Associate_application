@@ -29,7 +29,7 @@ export async function goItAllData(page: Page) {
   await openSectionAndAllData(
     page,
     'IT',
-    /Search clients by name, PAN/i
+    /Search by name, PAN|Search clients by name, PAN/i
   );
 }
 
@@ -37,7 +37,7 @@ export async function goGstAllData(page: Page) {
   await openSectionAndAllData(
     page,
     'GST',
-    /Search companies by name, user ID/i
+    /Search by company, User ID|Search companies by name, user ID/i
   );
 }
 

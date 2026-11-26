@@ -184,6 +184,8 @@ export function GstFilingQuickModal({
     : received - total > 0.009;
   const filingExists = Boolean(liveFiling);
   const canManagePayments = filingExists && Boolean(onRecordPayment);
+  /** Pay action opens a payment-first layout; Edit Charges keeps charges first. */
+  const quickPayMode = target.focus === 'payment';
 
   const handleSaveFiling = async () => {
     setSaving(true);
@@ -262,6 +264,25 @@ export function GstFilingQuickModal({
       setError('Unsupported payment mode.');
       return;
     }
+    // Match server rule: new payments cannot exceed remaining outstanding.
+    if (!editingPaymentId && amount - outstanding > 0.009) {
+      setError(
+        `Payment amount exceeds remaining outstanding (₹${formatPlainNumber(outstanding)}).`
+      );
+      return;
+    }
+    if (editingPaymentId && onUpdatePayment) {
+      const otherReceived = payments
+        .filter((p) => p.id !== editingPaymentId)
+        .reduce((sum, p) => sum + Math.max(0, Number(p.amount) || 0), 0);
+      const remainingForEdit = Math.max(0, total - otherReceived);
+      if (amount - remainingForEdit > 0.009) {
+        setError(
+          `Payment amount exceeds remaining outstanding (₹${formatPlainNumber(remainingForEdit)}).`
+        );
+        return;
+      }
+    }
 
     setSaving(true);
     setError(null);
@@ -295,6 +316,9 @@ export function GstFilingQuickModal({
         });
         resetPaymentForm();
         setSuccess('Payment recorded.');
+        window.requestAnimationFrame(() => {
+          payAmountInputRef.current?.focus({ preventScroll: true });
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to save payment.');
@@ -341,10 +365,14 @@ export function GstFilingQuickModal({
               id="gst-quick-filing-title"
               className="font-display text-base font-semibold truncate"
             >
-              {target.month} · {target.company.companyName}
+              {quickPayMode
+                ? `Record payment · ${target.month}`
+                : `${target.month} · ${target.company.companyName}`}
             </h2>
-            <p className="text-xs font-mono text-[var(--sidebar-text)] mt-0.5">
-              User ID: {target.company.userId}
+            <p className="text-xs font-mono text-[var(--sidebar-text)] mt-0.5 truncate">
+              {quickPayMode
+                ? target.company.companyName
+                : `User ID: ${target.company.userId}`}
             </p>
           </div>
           <button
@@ -358,20 +386,23 @@ export function GstFilingQuickModal({
         </div>
 
         <div className="flex flex-col flex-1 min-h-0">
-          <div className="p-5 space-y-5 overflow-y-auto flex-1 overscroll-contain">
+          <div className="p-5 overflow-y-auto flex-1 overscroll-contain flex flex-col gap-5">
             {error && (
-              <div className="px-3 py-2 text-xs text-red-800 bg-[var(--danger-15)] border border-red-200 rounded-lg">
+              <div className="px-3 py-2 text-xs text-red-800 bg-[var(--danger-15)] border border-red-200 rounded-lg order-first">
                 {error}
               </div>
             )}
             {success && (
-              <div className="px-3 py-2 text-xs text-[var(--success)] bg-[var(--success-15)] border border-[var(--success)] rounded-lg">
+              <div className="px-3 py-2 text-xs text-[var(--success)] bg-[var(--success-15)] border border-[var(--success)] rounded-lg order-first">
                 {success}
               </div>
             )}
 
-            {/* Section 1 — Filing Charges */}
-            <section className="space-y-3" aria-labelledby={`${uid}-charges-heading`}>
+            {/* Section 1 — Filing Charges (after payment when opened via Pay) */}
+            <section
+              className={`space-y-3 ${quickPayMode ? 'order-3' : 'order-1'}`}
+              aria-labelledby={`${uid}-charges-heading`}
+            >
               <h3 id={`${uid}-charges-heading`} className={sectionTitle}>
                 Filing Charges
               </h3>
@@ -450,15 +481,51 @@ export function GstFilingQuickModal({
               </div>
             </section>
 
-            {/* Section 2 — Payment Details (always visible) */}
+            {/* Section 2 — Payment Details (first when opened via Pay) */}
             <section
               ref={paymentSectionRef}
-              className="space-y-3"
+              className={`space-y-3 ${quickPayMode ? 'order-1' : 'order-2'}`}
               aria-labelledby={`${uid}-payment-details-heading`}
             >
               <h3 id={`${uid}-payment-details-heading`} className={sectionTitle}>
                 Payment Details
               </h3>
+              {quickPayMode ? (
+                <p className="text-[11px] text-[var(--muted)] leading-relaxed -mt-1">
+                  Type the amount received below. Received and Outstanding refresh
+                  after you save.
+                </p>
+              ) : null}
+
+              {quickPayMode ? (
+                <div
+                  className={`rounded-2xl border px-4 py-3.5 ${
+                    outstanding > 0
+                      ? 'border-[var(--navy-900)]/20 bg-[var(--frost-100)]'
+                      : 'border-[var(--success)]/40 bg-[var(--success-15)]'
+                  }`}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    Outstanding now
+                  </p>
+                  <p
+                    className={`mt-1 font-mono text-2xl font-bold tabular-nums ${
+                      outstanding > 0
+                        ? 'text-[var(--navy-900)]'
+                        : 'text-[var(--success)]'
+                    }`}
+                    aria-live="polite"
+                    data-testid="gst-month-outstanding"
+                  >
+                    ₹{formatPlainNumber(outstanding)}
+                  </p>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    Total ₹{formatPlainNumber(total)} − Received ₹
+                    {formatPlainNumber(received)} (minimum zero). Received is
+                    the sum of saved payments — not typed here.
+                  </p>
+                </div>
+              ) : null}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -476,25 +543,42 @@ export function GstFilingQuickModal({
                     Sum of saved payments for this month (read-only).
                   </p>
                 </div>
-                <div>
-                  <p className="block text-xs font-medium text-[var(--ink)] mb-1">
-                    Outstanding (₹)
-                  </p>
-                  <div
-                    className={`${readOnlyBox} ${
-                      outstanding > 0
-                        ? 'bg-[var(--frost-100)] border-[var(--line)] text-[var(--blue-500)]'
-                        : 'bg-[var(--success-15)] border-[var(--success)] text-[var(--success)]'
-                    }`}
-                    aria-live="polite"
-                    data-testid="gst-month-outstanding"
-                  >
-                    ₹{formatPlainNumber(outstanding)}
+                {!quickPayMode ? (
+                  <div>
+                    <p className="block text-xs font-medium text-[var(--ink)] mb-1">
+                      Outstanding (₹)
+                    </p>
+                    <div
+                      className={`${readOnlyBox} ${
+                        outstanding > 0
+                          ? 'bg-[var(--frost-100)] border-[var(--line)] text-[var(--blue-500)]'
+                          : 'bg-[var(--success-15)] border-[var(--success)] text-[var(--success)]'
+                      }`}
+                      aria-live="polite"
+                      data-testid="gst-month-outstanding"
+                    >
+                      ₹{formatPlainNumber(outstanding)}
+                    </div>
+                    <p className="mt-1 text-[11px] text-[var(--muted)]">
+                      Total − Received for this month (minimum zero).
+                    </p>
                   </div>
-                  <p className="mt-1 text-[11px] text-[var(--muted)]">
-                    Total − Received for this month (minimum zero).
-                  </p>
-                </div>
+                ) : (
+                  <div>
+                    <p className="block text-xs font-medium text-[var(--ink)] mb-1">
+                      Month total (₹)
+                    </p>
+                    <div
+                      className={`${readOnlyBox} bg-[var(--frost-100)] border-[var(--line)] text-[var(--ink)]`}
+                      aria-live="polite"
+                    >
+                      ₹{formatPlainNumber(total)}
+                    </div>
+                    <p className="mt-1 text-[11px] text-[var(--muted)]">
+                      Fees + Interest + Tax (edit charges below if needed).
+                    </p>
+                  </div>
+                )}
               </div>
 
               {overReceipt && (
@@ -517,7 +601,11 @@ export function GstFilingQuickModal({
 
               {canManagePayments ? (
                 <form
-                  className="space-y-3 rounded-xl border border-[var(--line)] p-3.5"
+                  className={`space-y-3 rounded-xl border p-3.5 ${
+                    quickPayMode
+                      ? 'border-[var(--navy-900)]/25 bg-[var(--card)] shadow-sm'
+                      : 'border-[var(--line)]'
+                  }`}
                   onSubmit={(e) => {
                     void handlePaymentSubmit(e);
                   }}
@@ -526,28 +614,67 @@ export function GstFilingQuickModal({
                     {editingPaymentId ? 'Edit payment' : 'Record payment'} ·{' '}
                     {target.month}
                   </p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
                       <label
                         htmlFor={`${uid}-pay-amount`}
-                        className="block text-xs font-medium text-[var(--ink)] mb-1"
+                        className="block text-xs font-medium text-[var(--ink)]"
                       >
-                        Payment Amount (₹)
+                        Amount received (₹)
                       </label>
-                      <input
-                        ref={payAmountInputRef}
-                        id={`${uid}-pay-amount`}
-                        type="number"
-                        min={0.01}
-                        step="0.01"
-                        value={payAmount}
-                        onChange={(e) => setPayAmount(e.target.value)}
-                        placeholder="0"
-                        className={fieldClass}
-                        required
-                        autoComplete="off"
-                      />
+                      {!editingPaymentId && outstanding > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayAmount(
+                              String(
+                                Number.isInteger(outstanding)
+                                  ? outstanding
+                                  : Math.round(outstanding * 100) / 100
+                              )
+                            );
+                            setError(null);
+                            payAmountInputRef.current?.focus();
+                          }}
+                          className="text-[11px] font-bold text-[var(--navy-900)] hover:underline cursor-pointer"
+                        >
+                          Use outstanding ₹{formatPlainNumber(outstanding)}
+                        </button>
+                      ) : null}
                     </div>
+                    <input
+                      ref={payAmountInputRef}
+                      id={`${uid}-pay-amount`}
+                      type="number"
+                      min={0.01}
+                      step="0.01"
+                      inputMode="decimal"
+                      value={payAmount}
+                      onChange={(e) => setPayAmount(e.target.value)}
+                      placeholder={
+                        outstanding > 0
+                          ? String(
+                              Number.isInteger(outstanding)
+                                ? outstanding
+                                : Math.round(outstanding * 100) / 100
+                            )
+                          : '0'
+                      }
+                      className={`${fieldClass} ${
+                        quickPayMode
+                          ? 'text-lg sm:text-base font-bold min-h-14 sm:min-h-12'
+                          : ''
+                      }`}
+                      required
+                      autoComplete="off"
+                      aria-label="Payment Amount (₹)"
+                    />
+                    <p className="mt-1 text-[11px] text-[var(--muted)]">
+                      Type the amount for this payment only. Partial payments are
+                      allowed; amount cannot exceed outstanding.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label
                         htmlFor={`${uid}-pay-date`}
@@ -564,21 +691,21 @@ export function GstFilingQuickModal({
                         required
                       />
                     </div>
-                  </div>
-                  <div>
-                    <label
-                      htmlFor={`${uid}-pay-mode`}
-                      className="block text-xs font-medium text-[var(--ink)] mb-1"
-                    >
-                      Payment Mode
-                    </label>
-                    <LimeSelect
-                      id={`${uid}-pay-mode`}
-                      value={payMode}
-                      options={paymentModes}
-                      onChange={setPayMode}
-                      ariaLabel="Payment mode"
-                    />
+                    <div>
+                      <label
+                        htmlFor={`${uid}-pay-mode`}
+                        className="block text-xs font-medium text-[var(--ink)] mb-1"
+                      >
+                        Payment Mode
+                      </label>
+                      <LimeSelect
+                        id={`${uid}-pay-mode`}
+                        value={payMode}
+                        options={paymentModes}
+                        onChange={setPayMode}
+                        ariaLabel="Payment mode"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label
@@ -612,10 +739,17 @@ export function GstFilingQuickModal({
                     ) : null}
                     <button
                       type="submit"
-                      disabled={saving}
-                      className="flex-1 min-h-11 px-4 text-xs font-bold text-white bg-[var(--navy-900)] hover:bg-[var(--navy-700)] rounded-xl cursor-pointer disabled:opacity-60"
+                      disabled={
+                        saving ||
+                        (!editingPaymentId && outstanding <= 0)
+                      }
+                      className="flex-1 min-h-12 px-4 text-sm font-bold text-white bg-[var(--navy-900)] hover:bg-[var(--navy-700)] rounded-xl cursor-pointer disabled:opacity-60"
                     >
-                      {editingPaymentId ? 'Update Payment' : 'Record Payment'}
+                      {editingPaymentId
+                        ? 'Update Payment'
+                        : outstanding <= 0
+                          ? 'Fully paid'
+                          : 'Record Payment'}
                     </button>
                   </div>
                 </form>
@@ -630,7 +764,7 @@ export function GstFilingQuickModal({
             {/* Section 3 — Existing Payment History (always visible when filing exists) */}
             {filingExists ? (
               <section
-                className="space-y-3"
+                className={`space-y-3 ${quickPayMode ? 'order-2' : 'order-3'}`}
                 aria-labelledby={`${uid}-payment-history-heading`}
               >
                 <h3
